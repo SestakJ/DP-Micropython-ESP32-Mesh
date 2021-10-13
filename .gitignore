@@ -1,3 +1,8 @@
+# IDF and Micropython libraries for ESP32
+esp-idf/
+micropython/
+micropython_esp-now.zip
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
