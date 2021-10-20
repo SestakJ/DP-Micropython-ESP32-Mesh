@@ -1,32 +1,35 @@
-import network
-import time
 ssid = "FourMusketers_2.4GHz"
 passd = "blank"
-async def connectWifi():
-    print(time.localtime())
+# import network
+# import time
+
+# async def connectWifi():
+#     print(time.localtime())
    
-    station = network.WLAN(network.STA_IF)
-    station.active(True)
-    await station.scan()
-    if station.isconnected() == True:
-        print("Already connected")
-    if station.isconnected() == False:
-        station.connect(ssid, passd)
-        print(time.localtime())
-    while station.isconnected() == False:
-        pass
+#     station = network.WLAN(network.STA_IF)
+#     station.active(True)
+#     await station.scan()
+#     if station.isconnected() == True:
+#         print("Already connected")
+#     if station.isconnected() == False:
+#         station.connect(ssid, passd)
+#         print(time.localtime())
+#     while station.isconnected() == False:
+#         pass
 
-    print("Connection successful")
-    print(station.ifconfig())
+#     print("Connection successful")
+#     print(station.ifconfig())
 
 
-
+# Source: https://github.com/kumekay/talks/tree/main/micropython_uasyncio
 
 import time
 import neopixel
 import network
 import uasyncio as asyncio
 from machine import Pin
+from machine import Pin, SoftI2C
+import display
 
 led_pin = Pin(25, Pin.OUT)
 led = neopixel.NeoPixel(led_pin, 1)
@@ -64,8 +67,28 @@ async def connect_wifi(ssid, password):
 async def main():
     asyncio.create_task(blink())
     await asyncio.sleep_ms(500)
-    wlan = connect_wifi(ssid, passd)
-    await wlan
+    wlan = await connect_wifi(ssid, passd)
+    print(wlan.ifconfig())
+     
+    # OLED Display
+    # ESP32 Pin assignment 
+    softI2C = SoftI2C(scl=Pin(23), sda=Pin(18))
+
+    oled_width = 128
+    oled_height = 32
+
+    oled = display.SSD1306_SoftI2C(oled_width, oled_height, softI2C)
+    oled.text('Welcome', 0, 0)
+    oled.text(str(wlan.ifconfig()), 0, 10)
+
+    print("Oled show()")
+    oled.show()
+    # oled.scroll(0, -10)
+    # oled.show()
+
+    # oled.fill(1)
+    # oled.show()
+
 
 
 try:
