@@ -1,26 +1,20 @@
 import ubinascii as binascii
+from micropython import const
+from machine import Pin, mem32
+import uasyncio as asyncio
+import neopixel
+import network
+import ussl as ssl
+import uasyncio as asyncio
+import time
+
 
 try:
     import usocket as socket
 except:
     import socket
-import ussl as ssl
 
-from machine import Pin
-import network
-
-import esp
-esp.osdebug(None)
-
-import gc
-gc.collect()
-
-from micropython import const
-from machine import Pin, mem32
-import uasyncio as asyncio
-import neopixel
-
-
+# Source codes: https://github.com/micropython/micropython/blob/master/examples/network/http_server_ssl.py
 # This self-signed key/cert pair is randomly generated and to be used for
 # testing/demonstration only.  You should always generate your own key/cert.
 key = binascii.unhexlify(
@@ -51,64 +45,93 @@ cert = binascii.unhexlify(
     b"979b57f0b3"
 )
 
-
-CONTENT = b"""\
-HTTPS/1.0 200 OK
-Hello #%d from MicroPython!
-"""
-response = b"""<html><head> <title>ESP Web Server</title> <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="data:,"> <style>html{font-family: Helvetica; display:inline-block; margin: 0px auto; text-align: center;}
-  h1{color: #0F3376; padding: 2vh;}p{font-size: 1.5rem;}.button{display: inline-block; background-color: #e7bd3b; border: none; 
-  border-radius: 4px; color: white; padding: 16px 40px; text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}
-  .button2{background-color: #4286f4;}</style></head>
-  """
-
-def web_page():
-  if n[0] != (0,0,0):
+# Function creates HTML web page with form to insert Mesh credentials
+def web_page(led):
+  if led[0] != (0,0,0):
     gpio_state="ON"
   else:
     gpio_state="OFF"
   
-  html = """<html><head> <title>ESP Web Server</title> <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="data:,"> <style>html{font-family: Helvetica; display:inline-block; margin: 0px auto; text-align: center;}
+  html = """
+  <html>
+  <head> 
+  <title>ESP Web Server</title> <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,"> 
+  <style>html{font-family: Helvetica; display:inline-block; margin: 0px auto; text-align: center;}
   h1{color: #0F3376; padding: 2vh;}p{font-size: 1.5rem;}.button{display: inline-block; background-color: #e7bd3b; border: none; 
   border-radius: 4px; color: white; padding: 16px 40px; text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}
-  .button2{background-color: #4286f4;}</style></head><body> <h1>ESP Web Server</h1> 
-  <p>GPIO state: <strong>""" + gpio_state + """</strong></p><p><a href="/?led=on"><button class="button">ON</button></a></p>
+  .button2{background-color: #4286f4;}</style>
+  </head>
+  
+  <body> 
+  <h1>ESP Web Server</h1> 
+  <p>GPIO state: <strong>""" + gpio_state + """</strong></p>
+  <p><a href="/?led=on"><button class="button">ON</button></a></p>
   <p><a href="/?led=off"><button class="button button2">OFF</button></a></p>
   
-  <form action="/" method="POST">
-    <input type="text" name="ssid" placeholder="ssid"><br> 
-    <input type="text" name="password" placeholder="Password Wifi"><br>
+ <p>MESH ESP NOW setup </p>
+   <form action="/" method="POST">
+    <input type="text" name="mesh-ssid" placeholder="Mesh SSID"><br> 
+    <input type="password" name="mesh-password" placeholder="Mesh Password"><br>
     <left><button type="submit">Submit</button></left>
   </form>     
-  </body></html>
-  
-
+  </body>
+  </html>
   """
   return html
 
-pin = Pin(25, Pin.OUT)
-n = neopixel.NeoPixel(pin, 1)
 def gpio_func_out(n):
     GPIO_FUNCn_OUT_SEL_CFG_REG = 0x3FF44530 + 0x4 * n
     return GPIO_FUNCn_OUT_SEL_CFG_REG
 
-r = gpio_func_out(25)
-mem32[r] |= 1 << 9
+
+def init_LED(pin_number=25):  
+    pin = Pin(pin_number, Pin.OUT)
+    n = neopixel.NeoPixel(pin, 1)
+    r = gpio_func_out(25)
+    mem32[r] |= 1 << 9
+    return n
+
+start = time.ticks_us()
+async def connect_wifi(ssid, password):
+    wlan = network.WLAN(network.STA_IF)
+    print(f"Create WLAN", time.ticks_us() - start)
+    await asyncio.sleep_ms(0)
+    wlan.active(True)
+    print(f"WLAN active", time.ticks_us() - start)
+    if not wlan.isconnected():
+        wlan.connect(ssid, password)
+        print(f"WLAN connect", time.ticks_us() - start)
+        while not wlan.isconnected():
+            print("Sleep here?")
+            await asyncio.sleep_ms(10)
+
+    print("Connected")
+    print(wlan.ifconfig())
+    return wlan
+
+c = (10, 0, 0)
+async def blink():
+    led = init_LED()
+    global c
+    while True:
+        led[0] = c
+        r, g, b = c
+        g = g ^ 10
+        b = b ^ 10
+        c = ( r, g, b)
+        led.write()
+        print("[LED] BLINK", time.ticks_us() - start)
+        await asyncio.sleep_ms(200)
 
 
-def main(use_stream=True):
+async def main():
+    print("Blink()")
+    asyncio.create_task(blink())
+    await asyncio.sleep_ms(20)
     ssid = "FourMusketers_2.4GHz"
     password = "jetufajN69"
-    station = network.WLAN(network.STA_IF)
-    station.active(True)
-    station.connect(ssid, password)
-    print('Connection pending')
-    while station.isconnected() == False:
-        pass
-    print('Connection successful')
-    print(station.ifconfig())
+    wlan = await connect_wifi(ssid, password)
 
     s = socket.socket()
 
@@ -119,14 +142,27 @@ def main(use_stream=True):
     # print("Bind address info:", ai)
     # addr = ai[0][-1]
 
-    # s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.setsockopt(socket.AF_INET, socket.SOCK_STREAM, 0)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    #s.setsockopt(socket.AF_INET, socket.SOCK_STREAM, 0)
     s.bind(('', 8443))
     s.listen(5)
     print("Listening, connect your browser to https://<this_host>:8443/")
 
+    # asyncio.create_task(webserver(s))
+    # await asyncio.sleep_ms(1000)
+
+    print("Webserver()")
+    await webserver(s)
+    print("Running for eternity")
+    
+async def webserver(sockets, use_stream=True):
     counter = 0
+    s = sockets
+    n = init_LED(25)
+    print("Inside webserver before WHILE")
+    global c
     while True:
+        await asyncio.sleep_ms(20)
         res = s.accept()
         client_s = res[0]
         client_addr = res[1]
@@ -166,13 +202,17 @@ def main(use_stream=True):
                     led_off = response.find('/?led=off')
                     if led_on == 6:
                         print('LED ON')
-                        n[0] = (0, 0, 10)
+                        
+                        c = (0, 10, 0)
+                        n[0] = c
                         n.write()
                     if led_off == 6:
                         print('LED OFF')
-                        n[0] = (0, 0, 0)
+                        
+                        c = (0, 0, 10)
+                        n[0] = c
                         n.write()
-                    response = web_page()
+                    response = web_page(n)
                     client_s.write('HTTP/1.0 200 OK\n')
                     client_s.write('Content-Type: text/html\n')
                     client_s.write('Connection: close\n\n')
@@ -189,4 +229,9 @@ def main(use_stream=True):
         print()
 
 
-main()
+try:
+    asyncio.run(main())
+except (KeyboardInterrupt, Exception) as e:
+    print("Exception {}".format(type(e).__name__))
+finally:
+    asyncio.new_event_loop()
