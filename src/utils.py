@@ -1,6 +1,7 @@
 from machine import Pin, mem32
 import uasyncio as asyncio
 import neopixel
+import network
 
 
 def gpio_func_out(n):
@@ -32,3 +33,35 @@ async def blink(c=(10, 0, 0)):
         c = ( r, g, b)
         led.write()
         await asyncio.sleep_ms(200)
+
+async def create_wifi(ssid, password, mode="AP"):
+    if mode == "AP":
+        print("AP_mode")
+        wlan = await ap_wifi(ssid, password)
+    else:
+        print("STA_mode")
+        wlan = await sta_wifi(ssid, password)
+    return wlan
+
+async def sta_wifi(ssid, password):
+    wlan = network.WLAN(network.STA_IF)
+    await asyncio.sleep_ms(10)
+    wlan.active(True)
+    if not wlan.isconnected():
+        wlan.connect(ssid, password)
+        while not wlan.isconnected():
+            await asyncio.sleep_ms(10)
+    print("Connected")
+    print(wlan.ifconfig())
+    return wlan
+
+async def ap_wifi(ssid, password=None):
+    wlan = network.WLAN(network.AP_IF) # create access-point interface
+    await asyncio.sleep_ms(10)
+    wlan.active(True)         # activate the interface
+    wlan.config(ssid, password) # set the ESSID of the access point
+    while not wlan.isconnected():
+        await asyncio.sleep_ms(10)
+    print("Connected")
+    print(wlan.ifconfig())
+    return wlan
