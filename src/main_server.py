@@ -21,8 +21,12 @@ async def main():
     ssid = "FourMusketers_2.4GHz"
     password = "jetufajN69"
     
+
     server = Server(ssid, password)
-    wlan = await server.sta_wifi(ssid, password)
+    print("Server created")
+    #wlan = await server.sta_wifi(ssid, password)
+    wlan = await server.ap_wifi("ESP-AP")
+    print("Wlan created and connected")
     #await server.create_wifi()
     s = server.create_socket()
     print("Socket created")

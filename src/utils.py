@@ -34,7 +34,7 @@ async def blink(c=(10, 0, 0)):
         led.write()
         await asyncio.sleep_ms(200)
 
-async def create_wifi(ssid, password, mode="AP"):
+async def create_wifi(ssid, password="", mode="AP"):
     if mode == "AP":
         print("AP_mode")
         wlan = await ap_wifi(ssid, password)
@@ -55,12 +55,16 @@ async def sta_wifi(ssid, password):
     print(wlan.ifconfig())
     return wlan
 
-async def ap_wifi(ssid, password=None):
+async def ap_wifi(ssid, password=""):
     wlan = network.WLAN(network.AP_IF) # create access-point interface
     await asyncio.sleep_ms(10)
     wlan.active(True)         # activate the interface
-    wlan.config(ssid, password) # set the ESSID of the access point
+    print(ssid)
+    wlan.config(essid=ssid) # set the ESSID of the access point
+    print("AP_wifi func")
     while not wlan.isconnected():
+        # print("AP_wifi func")
+        #pass
         await asyncio.sleep_ms(10)
     print("Connected")
     print(wlan.ifconfig())

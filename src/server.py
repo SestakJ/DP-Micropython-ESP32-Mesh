@@ -105,11 +105,13 @@ class Server():
         print(wlan.ifconfig())
         return wlan
 
-    async def ap_wifi(self, ssid, password=None):
+    async def ap_wifi(self, ssid, password=""):
         wlan = network.WLAN(network.AP_IF) # create access-point interface
         await asyncio.sleep_ms(10)
         wlan.active(True)         # activate the interface
-        wlan.config(ssid, password) # set the ESSID of the access point
+        print(ssid)
+        wlan.config(essid=ssid) # set the ESSID of the access point
+        print("AP_wifi func")
         while not wlan.isconnected():
             await asyncio.sleep_ms(10)
         print("Connected")
