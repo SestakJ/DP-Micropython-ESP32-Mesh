@@ -27,23 +27,29 @@ import time
 import neopixel
 import network
 import uasyncio as asyncio
-from machine import Pin
+from machine import Pin, mem32
 from machine import Pin, SoftI2C
 import display
 
-led_pin = Pin(25, Pin.OUT)
-led = neopixel.NeoPixel(led_pin, 1)
+pin = Pin(25, Pin.OUT)
+n = neopixel.NeoPixel(pin, 1)
+
+def gpio_func_out(n):
+    GPIO_FUNCn_OUT_SEL_CFG_REG = 0x3FF44530 + 0x4 * n
+    return GPIO_FUNCn_OUT_SEL_CFG_REG
 
 start = time.ticks_us()
 
 async def blink():
+    r = gpio_func_out(25)
+    mem32[r] |= 1 << 9
     b = 10
     while True:
-        led[0] = (0, b, 0)
+        n[0] = (0, b, 0)
         b = b ^ 10
-        led.write()
+        n.write()
         print("[LED] BLINK", time.ticks_us() - start)
-        await asyncio.sleep_ms(20)
+        await asyncio.sleep_ms(200)
 
 
 async def connect_wifi(ssid, password):

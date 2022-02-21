@@ -88,10 +88,11 @@ class Server():
     async def create_wifi(self):
         if self.wifi_mode == "AP":
             print("AP_mode")
-            self.wlan = self.ap_wifi(self._ssid, self._password)
+            self.wlan = await self.ap_wifi(self._ssid, self._password)
         else:
             print("STA_mode")
-            self.wlan = self.sta_wifi(self._ssid, self._password)
+            self.wlan = await self.sta_wifi(self._ssid, self._password)
+        return self.wlan
 
     async def sta_wifi(self, ssid, password):
         wlan = network.WLAN(network.STA_IF)
@@ -125,7 +126,7 @@ class Server():
         #s.setsockopt(socket.AF_INET, socket.SOCK_STREAM, 0)
         s.bind(('', port))
         s.listen(maxconnection)
-        print(f"Listening, connect your browser to https://", ipaddr, ":", port)
+        print(f"Listening, connect your browser to https://", self.wlan.ifconfig()[0], ":", port)
         return s
 
     def print_http(self, ssl_socket):

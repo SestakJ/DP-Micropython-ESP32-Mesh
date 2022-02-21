@@ -119,15 +119,18 @@ async def blink():
         r, g, b = c
         g = g ^ 10
         b = b ^ 10
+        r = r ^ 10
         c = ( r, g, b)
         led.write()
         print("[LED] BLINK", time.ticks_us() - start)
-        await asyncio.sleep_ms(200)
+        await asyncio.sleep_ms(500)
 
 
 async def main():
+    loop = asyncio.get_event_loop()
     print("Blink()")
-    asyncio.create_task(blink())
+    # asyncio.create_task(blink())
+    loop.create_task(blink())
     await asyncio.sleep_ms(20)
     ssid = "FourMusketers_2.4GHz"
     password = "jetufajN69"
@@ -146,14 +149,29 @@ async def main():
     #s.setsockopt(socket.AF_INET, socket.SOCK_STREAM, 0)
     s.bind(('', 8443))
     s.listen(5)
+    # s.setblocking(0)
     print("Listening, connect your browser to https://<this_host>:8443/")
 
+    print("Webserver()")
     # asyncio.create_task(webserver(s))
     # await asyncio.sleep_ms(1000)
 
-    print("Webserver()")
-    await webserver(s)
+    #await webserver(s)
+    loop.create_task(webserver(s))
     print("Running for eternity")
+
+    try: 
+        loop.run_forever()
+    except KeyboardInterrupt:
+        print("loop closing")
+        loop.close()
+    except e:
+        print(e)
+        loop.close()
+    # Close the server
+    # loop.run_until_complete(server.wait_closed())
+    loop.close()
+    print("END")
     
 async def webserver(sockets, use_stream=True):
     counter = 0
@@ -162,7 +180,7 @@ async def webserver(sockets, use_stream=True):
     print("Inside webserver before WHILE")
     global c
     while True:
-        await asyncio.sleep_ms(20)
+        # await asyncio.sleep_ms(20)
         res = s.accept()
         client_s = res[0]
         client_addr = res[1]
@@ -229,9 +247,10 @@ async def webserver(sockets, use_stream=True):
         print()
 
 
-try:
-    asyncio.run(main())
-except (KeyboardInterrupt, Exception) as e:
-    print("Exception {}".format(type(e).__name__))
-finally:
-    asyncio.new_event_loop()
+if __name__=='__main__':
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, Exception) as e:
+        print("Exception {}".format(type(e).__name__))
+    finally:
+        asyncio.new_event_loop()

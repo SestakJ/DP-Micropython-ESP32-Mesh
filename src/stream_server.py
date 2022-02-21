@@ -11,7 +11,7 @@ except:
 import ussl as ssl
 
 
-from utils import init_LED, create_wifi
+from utils import init_LED, create_wifi, blink
 
 html = """
         <html>
@@ -65,31 +65,6 @@ async def serve(reader, writer):
     await writer.wait_closed()
     print("response send")
 
-def sta_wifi(ssid, password):
-    wlan = network.WLAN(network.STA_IF)
-    #await asyncio.sleep_ms(10)
-    wlan.active(True)
-    if not wlan.isconnected():
-        wlan.connect(ssid, password)
-        while not wlan.isconnected():
-            pass
-     #       await asyncio.sleep_ms(10)
-    print("Connected")
-    print(wlan.ifconfig())
-    return wlan
-
-async def sta_wifi(ssid, password):
-    wlan = network.WLAN(network.STA_IF)
-    await asyncio.sleep_ms(10)
-    wlan.active(True)
-    if not wlan.isconnected():
-        wlan.connect(ssid, password)
-        while not wlan.isconnected():
-            await asyncio.sleep_ms(10)
-    print("Connected")
-    print(wlan.ifconfig())
-    return wlan
-
 def create_socket(port=8443, ipaddr='', maxconnection=2):
     key = binascii.unhexlify(
         b"3082013b020100024100cc20643fd3d9c21a0acba4f48f61aadd675f52175a9dcf07fbef"
@@ -136,38 +111,42 @@ n = init_LED()
 async def main():
     ssid = "FourMusketers_2.4GHz"
     password = "jetufajN69"
-    loop = asyncio.get_event_loop()
     print("loop init")
+    loop = asyncio.get_event_loop()
 
-    ssid = "ESP-AP"
-    wlan = await create_wifi(ssid)
+    # ssid = "ESP-AP"
+    # password = "esp"
+    wlan = await create_wifi(ssid, password, "STA")
     print("Wlan created")
-    print(wlan.ifconfig()[0])
-
-    sock = create_socket()
-    print(sock)
     
-    # server_coro = asyncio.start_server(serve,
-    #                                    host=wlan.ifconfig()[0], 
-    #                                    port=80)
-    # server = loop.run_until_complete(server_coro)
-
+    # sock = create_socket()
+    # print(sock)
+    
+    # Create tasks to run
     server_task = loop.create_task(asyncio.start_server(serve, host=wlan.ifconfig()[0], port=80))
+    # server_task = asyncio.wait_for(asyncio.start_server(serve, host=wlan.ifconfig()[0], port=80))
+    loop.create_task(blink((10,0,0)))
+
+  
     print("loop created task")
     try: 
         loop.run_forever()
     except KeyboardInterrupt:
-        print("closing")
+        print("loop closing")
+        loop.close()
+    except e:
+        print(e)
         loop.close()
     # Close the server
-    server.close()
-    loop.run_until_complete(server.wait_closed())
+    server_task.close()
+    loop.run_until_complete(server_task.wait_closed())
     loop.close()
     print("END")
 
-try:
-    asyncio.run(main())
-except (KeyboardInterrupt, Exception) as e:
-    print("Exception {}".format(type(e).__name__))
-finally:
-    asyncio.new_event_loop()
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, Exception) as e:
+        print("Exception {}".format(type(e).__name__))
+    finally:
+        asyncio.new_event_loop()
