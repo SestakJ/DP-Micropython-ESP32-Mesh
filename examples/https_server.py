@@ -133,7 +133,7 @@ async def main():
     loop.create_task(blink())
     await asyncio.sleep_ms(20)
     ssid = "FourMusketers_2.4GHz"
-    password = "jetufajN69"
+    password = "pass"
     wlan = await connect_wifi(ssid, password)
 
     s = socket.socket()

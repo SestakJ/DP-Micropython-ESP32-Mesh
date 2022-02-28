@@ -22,7 +22,7 @@ import neopixel
 
 
 ssid = "FourMusketers_2.4GHz"
-password = "jetufajN69"
+password = "pass"
 
 # station = network.WLAN(network.STA_IF)
 
