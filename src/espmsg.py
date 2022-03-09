@@ -29,20 +29,28 @@ class COMMAND:
     CLAIM=5
     NODE_FAIL=6
 
+class Node:
+    def __init__(self, id, mesh_cntr, rssi):
+        self.id = id
+        self.mesh_cntr = mesh_cntr
+        self.rssi = rssi
 
 class Advertise:
     type = COMMAND.ADVERTISE
+    _neighbours = {}
 
-    def __init__(self, node_id, cntr, rssi):
-        self.node_id = node_id
-        self.cntr = cntr
+    def __init__(self, id, cntr, rssi):
+        self.id = id
+        self.mesh_cntr = cntr
         self.rssi = rssi
-
+    
     async def process(self):
-        await asyncio.sleep(0.20)
+        adv_node = Node(self.id, self.mesh_cntr, self.rssi)
+        self._neighbours[self.id] = adv_node
+        dprint(type(self), "Node advertised process: ", adv_node)
 
     def __repr__(self):
-        return f"Node_ID: {self.node_id} Centrality: {self.cntr} RSSI: {self.rssi}"
+        return f"Node_ID: {self.id} Centrality: {self.mesh_cntr} RSSI: {self.rssi}"
 
 class Root_elected(Advertise):
     type = COMMAND.ROOT_ELECTED
@@ -70,8 +78,8 @@ class Claim_child_res(Claim_child):
 class Node_fail:
     type = COMMAND.NODE_FAIL
 
-    def __init__(self, node_id):
-        self.node_id = node_id
+    def __init__(self, id):
+        self.id = id
 
     async def process(self):
         await asyncio.sleep(0.55)
@@ -88,9 +96,11 @@ PACKETS = {
 # Pack msg into bytes.
 def create_message(obj):
     klass, pattern = PACKETS[obj.type]
-    dprint( *vars(obj).values())
-    msg = struct.pack('B', obj.type) + struct.pack(pattern, *vars(obj).values())
-    dprint(msg)
+    # print(*obj.__dict__.values())
+    # dprint( *vars(obj).values())
+    # msg = struct.pack('B', obj.type) + struct.pack(pattern, *vars(obj).values())
+    msg = struct.pack('B', obj.type) + struct.pack(pattern, *obj.__dict__.values())
+    dprint("create_message: ", msg)
     return msg
 
 # On received message unpack from bytes.
@@ -98,7 +108,7 @@ async def on_message(msg):
     msg_type = msg[0]
     klass, pattern = PACKETS[msg_type]
     obj = klass(*struct.unpack(pattern, msg[1:]))
-    dprint(klass, pattern, obj)
+    dprint("on_message: ", pattern, obj)
     await obj.process()
     return obj
 
@@ -108,36 +118,36 @@ def print_mac(mac):
 
 async def main():
 
-    node_id = b'\xff\xff\xff\xff\xff\xa0' # machine.unique_id()
+    id = b'\xff\xff\xff\xff\xff\xa0' # machine.unique_id()
     cntr = 1452
     rssi = -74.2
-    dprint(type(node_id), node_id)
-    dprint(type(cntr), cntr)
-    dprint(type(rssi), rssi)
-    ad = Advertise(node_id, cntr, rssi)
+    # dprint(type(id), id)
+    # dprint(type(cntr), cntr)
+    # dprint(type(rssi), rssi)
+    ad = Advertise(id, cntr, rssi)
     msg = create_message(ad)
 
-    dprint(type(msg), msg)
-    dprint(msg[0])
+    # dprint(type(msg), msg)
+    # dprint(msg[0])
     tmpmsg = await on_message(msg)
 
 
-    root = Root_elected(node_id, cntr, rssi)
-    dprint(root)
-    msg = create_message(root)
-    dprint(type(msg), msg)
-    dprint(msg[0])
+    # root = Root_elected(id, cntr, rssi)
+    # dprint(root)
+    # msg = create_message(root)
+    # dprint(type(msg), msg)
+    # dprint(msg[0])
     
-    tmpmsg = await on_message(msg)
+    # tmpmsg = await on_message(msg)
 
 
     # pattern = '!hhl'
     # pattern = '6s'
     # # tmp = struct.pack(pattern, 1, 2.4, 3)
 
-    # node_id = b'<q\xbf\xe4\x8d\xa0'
-    # # dprint(bytes(node_id, 'UTF-8'))
-    # tmp = struct.pack(pattern, node_id)
+    # id = b'<q\xbf\xe4\x8d\xa0'
+    # # dprint(bytes(id, 'UTF-8'))
+    # tmp = struct.pack(pattern, id)
     # dprint(tmp, len(tmp))
 
     # utmp = struct.unpack(pattern, tmp)

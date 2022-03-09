@@ -1,9 +1,9 @@
-# coding=utf-8
-# (C) Copyright 2022 Jindrich Sestak (xsesta05)
-# Licenced under MIT.
-# Part of diploma thesis.
-# Content: Classes for network and esp-now interaction.
- 
+    # coding=utf-8
+    # (C) Copyright 2022 Jindrich Sestak (xsesta05)
+    # Licenced under MIT.
+    # Part of diploma thesis.
+    # Content: Classes for network and esp-now interaction.
+    
 try:
     import uasyncio as asyncio
     from uasyncio import StreamReader
@@ -66,10 +66,9 @@ class Net:
         return wlan
 
 class ESP:
-    def __init__(self, net):
+    def __init__(self):
         self.esp = espnow.ESPNow()
         self.esp.init()
-        self.net = net
         self.stream_reader = StreamReader(self.esp)
 
     def add_peer(self, peer, lmk=None, channel=0, ifidx=network.AP_IF):
