@@ -7,6 +7,14 @@ Micropython firmwares for ESP32 https://github.com/glenn20/micropython-espnow-im
 And to upload them to ESP32 board:
     esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 115200 write_flash -z 0x1000 ../../Downloads/firmware-esp32-GENERICv17.bin
 
+cd micropython
+make -C mpy-cross/
+cd ports/esp32/
+get-idf 
+idf.py -D MICROPY_BOARD=GENERIC_SPIRAM build
+idf.py erase_flash 
+idf.py flash  
+
 -using ampy to run, put, list, etc. files on ESP32
 ampy -p /dev/ttyUSB0 run webpage.py
 

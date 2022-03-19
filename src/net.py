@@ -13,15 +13,16 @@ except ImportError:
     import asyncio
     from asyncio import StreamReader
 
-DEBUG = True
+
+DEBUG = False
 def dprint(*args):
     if DEBUG:
         print(*args)
 
+
 class Net:
     def __init__(self, mode):
         self.mode = mode
-        self.WLAN = network.WLAN
         self.wlan = network.WLAN(self.mode) # Create an interface
         self.wlan.active(True)
         
@@ -34,9 +35,9 @@ class Net:
     def ifconfig(self):
         return self.wlan.ifconfig()
 
-    def config(self, essid="ssid", password="password", *args):
+    def config(self, *args, **kwargs):
         dprint("This is runned")
-        return self.wlan.config(essid=essid, password=password)
+        return self.wlan.config(*args, **kwargs)
 
     async def do_connect(self, ssid, password=""):
         if self.mode == network.AP_IF:
@@ -65,6 +66,7 @@ class Net:
         dprint(wlan.ifconfig())
         return wlan
 
+        
 class ESP:
     def __init__(self):
         self.esp = espnow.ESPNow()
