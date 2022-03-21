@@ -24,3 +24,7 @@ mpremote [--port Port]
 ## Project
 
 - Microdot web server in micropython (https://github.com/miguelgrinberg/microdot)
+- HMCA class in ucrypto/hmac.py from https://github.com/dmazzella/ucrypto
+
+\x0ctW\x88\x10\xeb\xca"\xba\xef\x8d+]\xeb\x11\xe4\x96\x93@\xb3\x84[\xc1?\xf5\xd3\x8dw\x9bo\xeb
+9*4 = 36

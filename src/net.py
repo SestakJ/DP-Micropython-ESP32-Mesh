@@ -74,7 +74,14 @@ class ESP:
         self.stream_reader = StreamReader(self.esp)
 
     def add_peer(self, peer, lmk=None, channel=0, ifidx=network.AP_IF):
-        return self.esp.add_peer(peer, lmk, channel, ifidx)
+        try:
+            return self.esp.add_peer(peer, lmk, channel, ifidx)
+        except OSError as e:
+            # ESP_ERR_ESPNOW_EXIST
+            if e.errno == 0 - int(0x306b):
+                pass
+            else:
+                raise e
 
     def config(self,*args):
         return self.esp.config(*args)
