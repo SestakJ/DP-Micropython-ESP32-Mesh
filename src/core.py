@@ -8,6 +8,7 @@ import uasyncio as asyncio
 import machine
 import time
 import struct
+import json
 from network import AUTH_WPA_WPA2_PSK
 from src.net import Net, ESP
 from src.espmsg import  Advertise, ObtainCreds, RootElected, ClaimChild, ClaimChildRes, NodeFail, \
@@ -17,11 +18,7 @@ from src.basecore import BaseCore
 
 
 # User defined constants.
-AP_WIFI_NAME = "ESP"            # Doesn't matter because it will be hidden.
-AP_WIFI_PASSWORD = "espespesp"  # Must be at least 8 characters long for WPA/WPA2-PSK authentization.
-ESP_PMK = b'hellotheregenera'   # Must be 16B.
-ESP_LMK = b'lkenobinobodyexp'   # Mut be 16B.
-
+CONFIG_FILE = 'config.json'
 LEFT_BUTTON = 32
 RIGHT_BUTTON = 0
 
@@ -33,8 +30,6 @@ ADVERTISE_S = const(5)      # Advertise every once this timer expires, in second
 DIGEST_SIZE = const(32)     # Size of HMAC(SHA256) signing code. Equals to Size of Creds for HMAC(SHA256).
 CREDS_LENGTH = const(32)
 
-CREDS = b'hellotheregeneralkenobinobodyexp' # TODO Must be 32B. Later deletee and use user defined
-
 """
 Core class responsible for mesh operations.
 """
@@ -42,8 +37,9 @@ class Core(BaseCore):
     BROADCAST = b'\xff\xff\xff\xff\xff\xff'
     DEBUG = True
 
-    def __init__(self, creds=32*b'\x00'):
-    # def __init__(self, creds=b'hellotheregeneralkenobinobodyexp'):
+    def __init__(self):
+        with open(CONFIG_FILE) as f:
+            self._config = json.loads(f.read())
         # Network and ESPNOW interfaces.
         self.ap = Net(1)                # Access point interface.
         # Predefined only for initial setup via microdot, not important now.
@@ -53,21 +49,26 @@ class Core(BaseCore):
         # self.ap.config(essid=self.ap_essid, password=self.ap_password, authmode=self.ap_authmode, hidden=0)
         self.sta = Net(0)               # Station interface
         self.esp = ESP()
-        self.esp_pmk = ESP_PMK
-        self.esp_lmk = ESP_LMK
-        self.esp.set_pmk(self.esp_pmk)
-        _, pattern = PACKETS[ESP_TYPE.OBTAIN_CREDS]
-        self._creds_msg_size = struct.calcsize(pattern) + 1
         # Node definitions
         self._id = machine.unique_id()
         self.cntr = 0
         self.rssi = 0.0
         self.neighbours = {}
-        # MESH definitions
-        if len(creds) != CREDS_LENGTH:
+        # User defined from config.json.
+        creds = self._config.get('credentials')
+        if creds is None:
+            creds = CREDS_LENGTH*b'\x00'
+        elif len(creds) != CREDS_LENGTH:
+            creds = creds.encode()
             new_creds = creds + (CREDS_LENGTH - len(creds))*b'\x00'
             creds = new_creds[:CREDS_LENGTH]
-        self.creds = creds              # Should be 32 bytes for HMAC(SHA256) signing.
+        self.creds = b''              # Should be 32 bytes for HMAC(SHA256) signing.
+        _, pattern = PACKETS[ESP_TYPE.OBTAIN_CREDS]
+        self._creds_msg_size = struct.calcsize(pattern) + 1
+        self.esp_pmk = self._config.get('esp_pmk').encode()
+        self.esp_lmk = self._config.get('esp_lmk').encode()
+        print(type(creds), creds)
+        self.esp.set_pmk(self.esp_pmk)
         self.inmps = False
         # Asyncio and PIN Interupt definition.
         self.button = init_button(RIGHT_BUTTON, self.mps_button_pressed)
@@ -103,7 +104,6 @@ class Core(BaseCore):
         """    
         if irq.value() == 0:
             self.mps_start = time.ticks_ms()
-            self.mps_end = 0
         elif irq.value() == 1:
             self.mps_end = time.ticks_ms()
         self.dprint("[MPS] button presed for: ", time.ticks_diff(self.mps_end, self.mps_start))
@@ -157,7 +157,7 @@ class Core(BaseCore):
             for v in self.neighbours.values():
                 adv = Advertise(*v)
                 signed_msg = self.send_msg(self.BROADCAST, adv)
-                self.dprint("[Advertise]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
+                self.dprint("[Advertise send]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
 
             await asyncio.sleep(ADVERTISE_S)
 
@@ -186,14 +186,14 @@ class Core(BaseCore):
                 msg, digest, msg_len = self.get_message_with_digest(buf)
                 if self.verify_sign(msg, digest):           # Unpack and process the message only if the digest is correct.
                     obj = await unpack_message(msg, self)
-                    self.dprint("[On Message Verified] obj: ", obj)
+                    self.dprint("[On Message Verified received] obj: ", obj)
                 # If in exchange mode expect creds and wrong sign because we don't have the correct creds.
                 elif self.inmps and msg_len == self._creds_msg_size + DIGEST_SIZE:
                     creds = digest
                     obj = await unpack_message(msg+creds, self)
-                    self.dprint("[On Message not Verified] obj: ", obj)
+                    self.dprint("[On Message not Verified received] obj: ", obj)
                 else:
-                    self.dprint("[On Message]", msg, msg_len)
+                    self.dprint("[On Message dropped]", msg, msg_len)
 
                 # TODO read only first two bytes and then read leng of the packet.
                 # Cannot do because StreamReader.read(), read1() don't work, they read as much as can.

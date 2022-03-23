@@ -24,7 +24,9 @@ idf.py flash  \
 - Microdot web server in micropython from https://github.com/miguelgrinberg/microdot
 - HMAC class in ucrypto/hmac.py from https://github.com/dmazzella/ucrypto \
 Sign every message iven if doesn't have credentials. Nodes in mesh with credentials will drop the message.
-- WPS procedure for exchange of credentials for HMAC signing:
+- config.json is configuration file, pmk and lmk must be 16B and creds should be 32B.
+
+- Mesh Protected Setup procedure for exchange of credentials for HMAC signing. Button must be pressed on both devices:
 ```
 Handshake protocol for exchange of credentials:
 Client                              Server

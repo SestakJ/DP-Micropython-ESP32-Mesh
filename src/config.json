@@ -1,0 +1,15 @@
+{
+    "_credentials" : "hellotheregeneralkenobinobodyex",
+    "credentials" : null,
+    "esp_pmk" : "hellotheregenera",
+    "esp_lmk" : "lkenobinobodyexp",
+    "root" : "",
+
+    "WIFI": [
+      [
+        "SSID",
+        "password"
+      ]
+    ]
+    
+  }
