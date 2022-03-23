@@ -48,14 +48,70 @@ class Advertise:
     def __repr__(self):
         return f"Node_ID: {self.id} Centrality: {self.mesh_cntr} RSSI: {self.rssi}"
 
+
+"""
+Handshake protocol for exchange of credentials:
+Client                              Server
+--------------------------------------------
+SYN -->>                            
+                                    ADD_PEER(LMK)
+                              <<--  SYN_ACK
+ADD_PEER(LMK)
+OBTAIN -->>                         
+                              <<--  RESPOND
+[[SAVE_CREDENTIALS]]
+DEL_PEER()
+UNREQ_SYN -->>                      
+                                    DEL_PEER()
+"""
 class ObtainCreds:
     type = ESP_TYPE.OBTAIN_CREDS
+    SYN = 0
+    SYN_ACK = 1     # For add_peer on the other side.
+    OBTAIN = 2
+    RESPOND = 3
+    UNREG = 4 
 
-    def __init__(self, creds):
+    def __init__(self, aflag, asrc_addr, creds = 32*b'\x00'):
+        self.aflag = aflag
+        self.asrc_addr = asrc_addr
         self.creds = creds
+        
+    async def process(self, core: "core.Core"):
+        instruction = ObtainCreds_methods.get(self.aflag, None)
+        if instruction:
+            return instruction(self, core)
 
-    def process(self, core: "core.Core"):
-        pass
+    def __repr__(self):
+        return f"Cred: {self.creds} Flag {self.aflag} Srcaddr {self.asrc_addr}"
+
+    def register_server(self, core):
+        core.esp.add_peer(self.asrc_addr, core.esp_lmk, encrypt=True)
+        core.send_creds(self.SYN_ACK, 32*b'\x00')       # BUT send via Broadcast.
+
+    def register_client(self, core):
+        core.esp.add_peer(self.asrc_addr, core.esp_lmk, encrypt=True)
+        core.send_creds(self.OBTAIN, 32*b'\x00', peer=self.asrc_addr)
+
+    def exchange_creds(self, core):
+        core.send_creds(self.RESPOND, core.creds, peer=self.asrc_addr)
+
+    def unregister_syn(self, core):
+        core.creds = self.creds
+        core.send_creds(self.UNREG, 32*b'\x00', peer=self.asrc_addr)
+        core.esp.del_peer(self.asrc_addr)
+
+    def unregister(self, core):
+        core.esp.del_peer(self.asrc_addr)
+
+ObtainCreds_methods = {
+    ObtainCreds.SYN         : ObtainCreds.register_server,
+    ObtainCreds.SYN_ACK     : ObtainCreds.register_client,
+    ObtainCreds.OBTAIN      : ObtainCreds.exchange_creds,
+    ObtainCreds.RESPOND     : ObtainCreds.unregister_syn,
+    ObtainCreds.UNREG       : ObtainCreds.unregister
+}
+
 
 class RootElected(Advertise):
     type = ESP_TYPE.ROOT_ELECTED
@@ -95,8 +151,7 @@ class NodeFail:
 
 PACKETS = {
     ESP_TYPE.ADVERTISE              : (Advertise, "!6shf"),
-    ESP_TYPE.OBTAIN_CREDS           : (ObtainCreds, "s"),
-
+    ESP_TYPE.OBTAIN_CREDS           : (ObtainCreds, "!B6s32s"),
     ESP_TYPE.ROOT_ELECTED           : (RootElected, "!6shf"),
     ESP_TYPE.CLAIM_CHILD_REQUEST    : (ClaimChild, "!6sf6s"),
     ESP_TYPE.CLAIM_CHILD_RESPONSE   : (ClaimChildRes, "!6sf6s"),
@@ -132,22 +187,64 @@ def print_mac(mac):
 
 async def main():
 
-    id = b'\xff\xff\xff\xff\xff\xa0' # machine.unique_id()
-    cntr = 1452
-    rssi = -74.2
-    # dprint(type(id), id)
-    # dprint(type(cntr), cntr)
-    # dprint(type(rssi), rssi)
-    ad = Advertise(id, cntr, rssi)
-    msg = pack_message(ad)
+    # id = b'\xff\xff\xff\xff\xff\xa0' # machine.unique_id()
+    # cntr = 1452
+    # rssi = -74.2
+    # # dprint(type(id), id)
+    # # dprint(type(cntr), cntr)
+    # # dprint(type(rssi), rssi)
+    # ad = Advertise(id, cntr, rssi)
+    # msg = pack_message(ad)
 
-    # dprint(type(msg), msg)
-    # dprint(msg[0])
-    tmpmsg = await unpack_message(msg)
+    # # dprint(type(msg), msg)
+    # # dprint(msg[0])
+    # tmpmsg = await unpack_message(msg, None)
 
-    print(ad.neighbours)
+    # print(ad.neighbours)
 
 
+    gimme_creds = ObtainCreds(0,b'\xff\xff\xff\xff\xff\xa0' )
+    # print(gimme_creds.__dict__.values())
+    try:
+        msg = pack_message(gimme_creds)
+    except:
+        print(msg)
+    print("HELLO")
+    print(msg)
+    print(gimme_creds.__dict__.values())
+
+    tmpmsg = await unpack_message(msg, "hej")
+
+    gimme_creds = ObtainCreds(1,b'\xff\xff\xff\xff\xff\xa0' )
+    # print(gimme_creds.__dict__.values())
+    try:
+        msg = pack_message(gimme_creds)
+    except:
+        print(msg)
+    print("HELLO")
+
+    
+    tmpmsg = await unpack_message(msg, "hej")
+    
+    gimme_creds = ObtainCreds(2,b'\xff\xff\xff\xff\xff\xa0' )
+    # print(gimme_creds.__dict__.values())
+    msg = pack_message(gimme_creds)
+    print(msg)
+
+    tmpmsg = await unpack_message(msg, "hej")
+    gimme_creds = ObtainCreds(3,b'\xff\xff\xff\xff\xff\xa0' )
+    # print(gimme_creds.__dict__.values())
+    msg = pack_message(gimme_creds)
+    print(msg)
+
+    tmpmsg = await unpack_message(msg, "hej")
+
+    gimme_creds = ObtainCreds(4,b'\xff\xff\xff\xff\xff\xa0' )
+    # print(gimme_creds.__dict__.values())
+    msg = pack_message(gimme_creds)
+    print(msg)
+
+    tmpmsg = await unpack_message(msg, "hej")
     # root = Root_elected(id, cntr, rssi)
     # dprint(root)
     # msg = pack_message(root)

@@ -10,7 +10,8 @@ import time
 import struct
 from network import AUTH_WPA_WPA2_PSK
 from src.net import Net, ESP
-from src.espmsg import Advertise, ObtainCreds, RootElected, ClaimChild, ClaimChildRes, NodeFail, pack_message, unpack_message
+from src.espmsg import  Advertise, ObtainCreds, RootElected, ClaimChild, ClaimChildRes, NodeFail, \
+                        pack_message, unpack_message, PACKETS, ESP_TYPE
 from src.utils import init_button
 from src.basecore import BaseCore
 
@@ -18,6 +19,8 @@ from src.basecore import BaseCore
 # User defined constants.
 AP_WIFI_NAME = "ESP"            # Doesn't matter because it will be hidden.
 AP_WIFI_PASSWORD = "espespesp"  # Must be at least 8 characters long for WPA/WPA2-PSK authentization.
+ESP_PMK = b'hellotheregenera'   # Must be 16B.
+ESP_LMK = b'lkenobinobodyexp'   # Mut be 16B.
 
 LEFT_BUTTON = 32
 RIGHT_BUTTON = 0
@@ -27,7 +30,10 @@ DEFAULT_S = const(5)
 WPS_THRESHOLD = const(4250) # Time how long button must be pressed to allow WPS in ms (cca 4-5s).
 WPS_TIMER = const(45)       # Allow excahnge of credentials for this time, in seconds.
 ADVERTISE_S = const(5)      # Advertise every once this timer expires, in seconds.
-DIGEST_SIZE = const(32)
+DIGEST_SIZE = const(32)     # Size of HMAC(SHA256) signing code. Equals to Size of Creds for HMAC(SHA256).
+CREDS_LENGTH = const(32)
+
+CREDS = b'hellotheregeneralkenobinobodyexp' # TODO Must be 32B. Later deletee and use user defined
 
 """
 Core class responsible for mesh operations.
@@ -36,7 +42,8 @@ class Core(BaseCore):
     BROADCAST = b'\xff\xff\xff\xff\xff\xff'
     DEBUG = True
 
-    def __init__(self, creds=b'hellotheregeneralkenobinobodyex'):
+    def __init__(self, creds=32*b'\x00'):
+    # def __init__(self, creds=b'hellotheregeneralkenobinobodyexp'):
         # Network and ESPNOW interfaces.
         self.ap = Net(1)                # Access point interface.
         self.ap_essid = AP_WIFI_NAME
@@ -45,22 +52,30 @@ class Core(BaseCore):
         self.ap.config(essid=self.ap_essid, password=self.ap_password, authmode=self.ap_authmode, hidden=0)
         self.sta = Net(0)               # Station interface
         self.esp = ESP()
-        self._loop = asyncio.get_event_loop()
-        # Node definition
+        self.esp_pmk = ESP_PMK
+        self.esp_lmk = ESP_LMK
+        self.esp.set_pmk(self.esp_pmk)
+        _, pattern = PACKETS[ESP_TYPE.OBTAIN_CREDS]
+        self._creds_msg_size = struct.calcsize(pattern) + 1
+        # Node definitions
         self._id = machine.unique_id()
         self.cntr = 0
         self.rssi = 0.0
         self.neighbours = {}
-        # MESH definition
-        self.creds = creds              # Should be 64 bytes for HMAC(SHA256) signing.
-        self.button = init_button(RIGHT_BUTTON, self.button_pressed)
+        # MESH definitions
+        if len(creds) != CREDS_LENGTH:
+            new_creds = creds + (CREDS_LENGTH - len(creds))*b'\x00'
+            creds = new_creds[:CREDS_LENGTH]
+        self.creds = creds              # Should be 32 bytes for HMAC(SHA256) signing.
         self.inwps = False
-
+        # Asyncio and PIN Interupt definition.
+        self.button = init_button(RIGHT_BUTTON, self.wps_button_pressed)
+        self._loop = asyncio.get_event_loop()
+        self._lock = asyncio.Lock()
 
     def dprint(self, *args):
         if self.DEBUG:
             print(*args)
-
 
     def start(self):
         """
@@ -77,15 +92,12 @@ class Core(BaseCore):
         await asyncio.sleep(DEFAULT_S)
         # Add broadcast peer
         self.esp.add_peer(self.BROADCAST)
-        # Advertise neigbours nodes to the mesh
         self._loop.create_task(self.on_message())
         self._loop.create_task(self.advertise())
 
-
-    # TODO move to BaseCore after I know it is working.
-    def button_pressed(self, irq):
+    def wps_button_pressed(self, irq):
         """
-        Function to measure how long is button pressed. If between 4.5s and 9s we can exchange credentials.
+        Function to measure how long is button pressed. If between WPS_THRESHOLD and 2*WPS_THRESHOLD, we can exchange credentials.
         """    
         if irq.value() == 0:
             self.wps_start = time.ticks_ms()
@@ -94,19 +106,43 @@ class Core(BaseCore):
             self.wps_end = time.ticks_ms()
         self.dprint("[WPS] button presed for: ", time.ticks_diff(self.wps_end, self.wps_start))
         if WPS_THRESHOLD < time.ticks_diff(self.wps_end, self.wps_start) < 2*WPS_THRESHOLD:
-            if self.creds:
-                self._loop.create_task(self.allow_wps())
-            else:
-                self._loop.create_task(self.obtain_creds())
+            self._loop.create_task(self.allow_wps())
+            if not self.has_creds():
+                self._loop.create_task(self.send_wps())
+        asyncio.sleep(0.1)
+        return
 
     async def allow_wps(self):
+        """
+        Allow exchange of credentials only for some amount of time.
+        """
         self.inwps = True
-        self.dprint("[WPS ALLOWED] for: ", WPS_TIMER, "seconds.")
-        asyncio.sleep(WPS_TIMER)
+        self.dprint("\t[WPS ALLOWED] for: ", WPS_TIMER, "seconds.")
+        await asyncio.sleep(WPS_TIMER)
+        self.dprint("\t[WPS ALLOWED ENDED] now")
         self.inwps = False
 
+    async def send_wps(self):
+        """
+        Schedule task to retrieve credentials that can only run for allowed amount of time.
+        Allow only one task to be run at the time using Lock() even if button was pressed multiple times.
+        """
+        try:
+            self._loop.run_until_complete(self._lock.acquire())
+            await asyncio.wait_for(self.obtain_creds(), WPS_TIMER)
+        except asyncio.TimeoutError:
+            print('ERROR : WPS timeout!')
+        except OSError as e:
+            raise e
+
     async def obtain_creds(self):
-        pass
+        """
+        Retrieve credentials until you have them.
+        """
+        while not self.has_creds():
+            send_msg = self.send_creds(0, self.creds, peer=self.BROADCAST)
+            await asyncio.sleep(DEFAULT_S)
+        self._lock.release()
 
     async def advertise(self):
         """
@@ -119,9 +155,21 @@ class Core(BaseCore):
             for v in self.neighbours.values():
                 adv = Advertise(*v)
                 signed_msg = self.send_msg(self.BROADCAST, adv)
-                self.dprint("[Advertise]:", signed_msg)
+                self.dprint("[Advertise]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
 
             await asyncio.sleep(ADVERTISE_S)
+
+    def get_message_with_digest(self, buf):
+        """
+        Extract message and it's digest and length and return all of it.
+        """
+        msg_magic, msg_len, msg_src = struct.unpack("!BB6s", buf[0:8]) # Always in the incoming packet.
+        # msg_magic = buf[0]
+        # msg_len = buf[1]
+        # msg_src = buf[2:8]
+        msg = buf[8:(8 + msg_len - DIGEST_SIZE)]
+        digest = buf[(8 + msg_len - DIGEST_SIZE) : (8 + msg_len)] # Get the digest from the message for comparison, digest is 32B.
+        return msg, digest, msg_len
 
     async def on_message(self):
         """
@@ -129,19 +177,21 @@ class Core(BaseCore):
         If node doesn't have credentials for digest, it will drop packet becaue degests will not match.
         """
         while True:
-            buf =  await self.esp.read(250) # HAS to be 250 otherwise digest is blank dont how why.
+            buf =  await self.esp.read(250) # HAS to be 250 otherwise digest is blank, don't know why.
             next_msg = 0
             while True:
                 buf = buf[next_msg:]
-                msg_magic = buf[0]
-                msg_len = buf[1]
-                msg_src = buf[2:8]
-                msg = buf[8:(8 + msg_len - DIGEST_SIZE)]
-                digest = buf[(8 + msg_len - DIGEST_SIZE) : (8 + msg_len)] # Get the digest from the message for comparison, digest is 32B.
-                # Process the message only if the digest is correct.
-                if self.verify_sign(msg, digest):
+                msg, digest, msg_len = self.get_message_with_digest(buf)
+                if self.verify_sign(msg, digest):           # Unpack and process the message only if the digest is correct.
                     obj = await unpack_message(msg, self)
-                    self.dprint("[On Message Verified] obj: ", obj, " \n\tNeighbours: ", self.neighbours )
+                    self.dprint("[On Message Verified] obj: ", obj)
+                # If in exchange mode expect creds and wrong sign because we don't have the correct creds.
+                elif self.inwps and msg_len == self._creds_msg_size + DIGEST_SIZE:
+                    creds = digest
+                    obj = await unpack_message(msg+creds, self)
+                    self.dprint("[On Message not Verified] obj: ", obj)
+                else:
+                    self.dprint("[On Message]", msg, msg_len)
 
                 # TODO read only first two bytes and then read leng of the packet.
                 # Cannot do because StreamReader.read(), read1() don't work, they read as much as can.
@@ -156,7 +206,7 @@ class Core(BaseCore):
 
     # DONE [-have a look on more practices] PEP8 rules for better understanding of code. ESPMSG names without underling, neighbours is private make it neighbours.
 
-    # TODO in WPS exhcange symetric key. Every message will be signed with hmac(sha256) fucntion for security
+    # DONE in WPS exhcange symetric key. Every message will be signed with hmac(sha256) fucntion for security
     # DONE- i have button time detection and decides if i offer or request creds
     # DONE- downloaded hmac lib for signing with sha256
     # DONE- must do BaseCore class with sendig and receving msg with hmac for decryption.
@@ -169,10 +219,12 @@ class Core(BaseCore):
     #             <Handshake>(probably add_peer with LMK for encrypt comm)
     #                         Send creds (shared symetric key created for Mesh comm. Every packet will be signed with this key.)
 
-    # TODO Press one button and AP Wifi becomes visible and can connect to web server to set creds..
 
     # TODO Root node after 2,5*ADV time no new node appeared start election process. Only the root node will send claim.
     # Centrality value of nodes will be computed like E(1/abs(rssi))^1/2
+    
+    # TODO Press one button and AP Wifi becomes visible and can connect to web server to set creds..
+
 
 def main():
     c = Core()
