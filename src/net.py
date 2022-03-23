@@ -73,12 +73,23 @@ class ESP:
         self.esp.init()
         self.stream_reader = StreamReader(self.esp)
 
-    def add_peer(self, peer, lmk=None, channel=0, ifidx=network.AP_IF):
+    def set_pmk(self, pmk):
+        self.esp.set_pmk(pmk)
+
+    def add_peer(self, peer, lmk=None, channel=0, ifidx=network.STA_IF, encrypt=False):
         try:
-            return self.esp.add_peer(peer, lmk, channel, ifidx)
+            return self.esp.add_peer(peer, lmk, channel, ifidx, encrypt)
         except OSError as e:
-            # ESP_ERR_ESPNOW_EXIST
-            if e.errno == 0 - int(0x306b):
+            if e.args[1] == 'ESP_ERR_ESPNOW_EXIST':
+                pass
+            else:
+                raise e
+
+    def del_peer(self, peer):
+        try:
+            return self.esp.del_peer(peer)
+        except OSError as e:
+            if e.args[1] == 'ESP_ERR_ESPNOW_NOT_FOUND':
                 pass
             else:
                 raise e
