@@ -21,7 +21,7 @@ class BaseCore:
     BROADCAST = b'\xff\xff\xff\xff\xff\xff'
     DEBUG = True
 
-    def __init__(self, creds=b''):
+    def __init__(self, creds=32*b'\x00'):
         # Network and ESPNOW interfaces.
         self.ap = Net(1)        # Access point interface.
         self.ap_essid = AP_WIFI_NAME
@@ -32,6 +32,10 @@ class BaseCore:
         self.esp = ESP()
         self._loop = asyncio.get_event_loop()
         self.creds = creds
+        self.wps_threshold = 0
+
+    def has_creds(self):
+        return int.from_bytes(self.creds, "big")
 
     def send_msg(self, peer=None, msg: "espmsg.class" = ""):
         """
@@ -47,8 +51,6 @@ class BaseCore:
         """
         Sign message with HMAC hash from sha256(by default) only if credentials are available.
         """
-        if not self.creds:
-            return ''
         mac = HMAC(self.creds, msg)
         digest_hash = mac.digest()
         return digest_hash
@@ -57,9 +59,21 @@ class BaseCore:
         """
         Check if the digest match with the same credentials. If not drop packet.
         """
+        if not msg_digest or not msg:
+            return False
         my_digest  = self.sign_message(msg)
-        return compare_digest(my_digest, msg_digest)
+        if len(my_digest) != len(msg_digest):
+            return False
+        return compare_digest(my_digest, bytes(msg_digest, 'utf-8'))
 
+    def send_creds(self, flag, creds, peer=BROADCAST):
+        """
+        Sending credentials, should be used in exchange mode(WPS) only.
+        """
+        gimme_creds = ObtainCreds(flag, self._id, creds)     # Default creds value is 32x"\x00".
+        send_msg = self.send_msg(peer, gimme_creds)
+        self.dprint("\t\t[WPS] Obtain creds send msg: ", send_msg)
+        return send_msg
 
     def dprint(self, *args):
         if self.DEBUG:
