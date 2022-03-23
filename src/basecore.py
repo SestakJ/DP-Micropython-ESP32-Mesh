@@ -32,7 +32,6 @@ class BaseCore:
         self.esp = ESP()
         self._loop = asyncio.get_event_loop()
         self.creds = creds
-        self.wps_threshold = 0
 
     def has_creds(self):
         return int.from_bytes(self.creds, "big")
@@ -68,11 +67,11 @@ class BaseCore:
 
     def send_creds(self, flag, creds, peer=BROADCAST):
         """
-        Sending credentials, should be used in exchange mode(WPS) only.
+        Sending credentials, should be used in exchange mode(MPS) only.
         """
         gimme_creds = ObtainCreds(flag, self._id, creds)     # Default creds value is 32x"\x00".
         send_msg = self.send_msg(peer, gimme_creds)
-        self.dprint("\t\t[WPS] Obtain creds send msg: ", send_msg)
+        self.dprint("\t\t[MPS] Obtain creds send msg: ", send_msg)
         return send_msg
 
     def dprint(self, *args):

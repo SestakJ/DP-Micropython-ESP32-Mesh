@@ -27,8 +27,8 @@ RIGHT_BUTTON = 0
 
 # Constants
 DEFAULT_S = const(5)
-WPS_THRESHOLD = const(4250) # Time how long button must be pressed to allow WPS in ms (cca 4-5s).
-WPS_TIMER = const(45)       # Allow excahnge of credentials for this time, in seconds.
+MPS_THRESHOLD = const(4250) # Time how long button must be pressed to allow MPS in ms (cca 4-5s).
+MPS_TIMER = const(45)       # Allow excahnge of credentials for this time, in seconds.
 ADVERTISE_S = const(5)      # Advertise every once this timer expires, in seconds.
 DIGEST_SIZE = const(32)     # Size of HMAC(SHA256) signing code. Equals to Size of Creds for HMAC(SHA256).
 CREDS_LENGTH = const(32)
@@ -46,10 +46,11 @@ class Core(BaseCore):
     # def __init__(self, creds=b'hellotheregeneralkenobinobodyexp'):
         # Network and ESPNOW interfaces.
         self.ap = Net(1)                # Access point interface.
-        self.ap_essid = AP_WIFI_NAME
-        self.ap_password = AP_WIFI_PASSWORD
-        self.ap_authmode = AUTH_WPA_WPA2_PSK   # WPA/WPA2-PSK mode.
-        self.ap.config(essid=self.ap_essid, password=self.ap_password, authmode=self.ap_authmode, hidden=0)
+        # Predefined only for initial setup via microdot, not important now.
+        # self.ap_essid = AP_WIFI_NAME
+        # self.ap_password = AP_WIFI_PASSWORD
+        # self.ap_authmode = AUTH_WPA_WPA2_PSK   # WPA/WPA2-PSK mode.
+        # self.ap.config(essid=self.ap_essid, password=self.ap_password, authmode=self.ap_authmode, hidden=0)
         self.sta = Net(0)               # Station interface
         self.esp = ESP()
         self.esp_pmk = ESP_PMK
@@ -67,9 +68,10 @@ class Core(BaseCore):
             new_creds = creds + (CREDS_LENGTH - len(creds))*b'\x00'
             creds = new_creds[:CREDS_LENGTH]
         self.creds = creds              # Should be 32 bytes for HMAC(SHA256) signing.
-        self.inwps = False
+        self.inmps = False
         # Asyncio and PIN Interupt definition.
-        self.button = init_button(RIGHT_BUTTON, self.wps_button_pressed)
+        self.button = init_button(RIGHT_BUTTON, self.mps_button_pressed)
+        self.mps_start = self.mps_end = 0
         self._loop = asyncio.get_event_loop()
         self._lock = asyncio.Lock()
 
@@ -95,43 +97,43 @@ class Core(BaseCore):
         self._loop.create_task(self.on_message())
         self._loop.create_task(self.advertise())
 
-    def wps_button_pressed(self, irq):
+    def mps_button_pressed(self, irq):
         """
-        Function to measure how long is button pressed. If between WPS_THRESHOLD and 2*WPS_THRESHOLD, we can exchange credentials.
+        Function to measure how long is button pressed. If between MPS_THRESHOLD and 2*MPS_THRESHOLD, we can exchange credentials.
         """    
         if irq.value() == 0:
-            self.wps_start = time.ticks_ms()
-            self.wps_end = 0
+            self.mps_start = time.ticks_ms()
+            self.mps_end = 0
         elif irq.value() == 1:
-            self.wps_end = time.ticks_ms()
-        self.dprint("[WPS] button presed for: ", time.ticks_diff(self.wps_end, self.wps_start))
-        if WPS_THRESHOLD < time.ticks_diff(self.wps_end, self.wps_start) < 2*WPS_THRESHOLD:
-            self._loop.create_task(self.allow_wps())
+            self.mps_end = time.ticks_ms()
+        self.dprint("[MPS] button presed for: ", time.ticks_diff(self.mps_end, self.mps_start))
+        if MPS_THRESHOLD < time.ticks_diff(self.mps_end, self.mps_start) < 2*MPS_THRESHOLD:
+            self._loop.create_task(self.allow_mps())
             if not self.has_creds():
-                self._loop.create_task(self.send_wps())
+                self._loop.create_task(self.send_mps())
         asyncio.sleep(0.1)
         return
 
-    async def allow_wps(self):
+    async def allow_mps(self):
         """
         Allow exchange of credentials only for some amount of time.
         """
-        self.inwps = True
-        self.dprint("\t[WPS ALLOWED] for: ", WPS_TIMER, "seconds.")
-        await asyncio.sleep(WPS_TIMER)
-        self.dprint("\t[WPS ALLOWED ENDED] now")
-        self.inwps = False
+        self.inmps = True
+        self.dprint("\t[MPS ALLOWED] for: ", MPS_TIMER, "seconds.")
+        await asyncio.sleep(MPS_TIMER)
+        self.dprint("\t[MPS ALLOWED ENDED] now")
+        self.inmps = False
 
-    async def send_wps(self):
+    async def send_mps(self):
         """
         Schedule task to retrieve credentials that can only run for allowed amount of time.
         Allow only one task to be run at the time using Lock() even if button was pressed multiple times.
         """
         try:
             self._loop.run_until_complete(self._lock.acquire())
-            await asyncio.wait_for(self.obtain_creds(), WPS_TIMER)
+            await asyncio.wait_for(self.obtain_creds(), MPS_TIMER)
         except asyncio.TimeoutError:
-            print('ERROR : WPS timeout!')
+            print('ERROR : MPS timeout!')
         except OSError as e:
             raise e
 
@@ -186,7 +188,7 @@ class Core(BaseCore):
                     obj = await unpack_message(msg, self)
                     self.dprint("[On Message Verified] obj: ", obj)
                 # If in exchange mode expect creds and wrong sign because we don't have the correct creds.
-                elif self.inwps and msg_len == self._creds_msg_size + DIGEST_SIZE:
+                elif self.inmps and msg_len == self._creds_msg_size + DIGEST_SIZE:
                     creds = digest
                     obj = await unpack_message(msg+creds, self)
                     self.dprint("[On Message not Verified] obj: ", obj)
@@ -206,11 +208,11 @@ class Core(BaseCore):
 
     # DONE [-have a look on more practices] PEP8 rules for better understanding of code. ESPMSG names without underling, neighbours is private make it neighbours.
 
-    # DONE in WPS exhcange symetric key. Every message will be signed with hmac(sha256) fucntion for security
+    # DONE in MPS exhcange symetric key. Every message will be signed with hmac(sha256) fucntion for security
     # DONE- i have button time detection and decides if i offer or request creds
     # DONE- downloaded hmac lib for signing with sha256
     # DONE- must do BaseCore class with sendig and receving msg with hmac for decryption.
-    # WPS like procces, from foto
+    # MPS like procces, from foto
     # Client                  Mesh Node
     #                         Only if button pressed on this node process the packet
     #                         Listtens for packet with "gimme creds"
