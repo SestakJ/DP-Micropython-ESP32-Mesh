@@ -24,11 +24,14 @@ RIGHT_BUTTON = 0
 
 # Constants
 DEFAULT_S = const(5)
-MPS_THRESHOLD = const(4250) # Time how long button must be pressed to allow MPS in ms (cca 4-5s).
-MPS_TIMER = const(45)       # Allow excahnge of credentials for this time, in seconds.
+MPS_THRESHOLD_MS = const(4250) # Time how long button must be pressed to allow MPS in ms (cca 4-5s).
+MPS_TIMER_S = const(45)       # Allow excahnge of credentials for this time, in seconds.
 ADVERTISE_S = const(5)      # Advertise every once this timer expires, in seconds.
+ADVERTISE_OTHERS_MS = const(13000)
+NEIGHBOURS_NOT_CHANGED_FOR = const(29)
 DIGEST_SIZE = const(32)     # Size of HMAC(SHA256) signing code. Equals to Size of Creds for HMAC(SHA256).
 CREDS_LENGTH = const(32)
+PMK_LMK_LENGTH = const(16)
 
 """
 Core class responsible for mesh operations.
@@ -42,6 +45,7 @@ class Core(BaseCore):
             self._config = json.loads(f.read())
         # Network and ESPNOW interfaces.
         self.ap = Net(1)                # Access point interface.
+        self.ap.config(hidden=True)
         # Predefined only for initial setup via microdot, not important now.
         # self.ap_essid = AP_WIFI_NAME
         # self.ap_password = AP_WIFI_PASSWORD
@@ -50,7 +54,8 @@ class Core(BaseCore):
         self.sta = Net(0)               # Station interface
         self.esp = ESP()
         # Node definitions
-        self._id = machine.unique_id()
+        self._id = self.ap.wlan.config('mac')
+        # machine.unique_id()
         self.cntr = 0
         self.rssi = 0.0
         self.neighbours = {}
@@ -62,12 +67,13 @@ class Core(BaseCore):
             creds = creds.encode()
             new_creds = creds + (CREDS_LENGTH - len(creds))*b'\x00'
             creds = new_creds[:CREDS_LENGTH]
-        self.creds = b''              # Should be 32 bytes for HMAC(SHA256) signing.
+        self.creds = creds              # Is 32Bytes long for HMAC(SHA256) signing.
         _, pattern = PACKETS[ESP_TYPE.OBTAIN_CREDS]
         self._creds_msg_size = struct.calcsize(pattern) + 1
         self.esp_pmk = self._config.get('esp_pmk').encode()
         self.esp_lmk = self._config.get('esp_lmk').encode()
-        print(type(creds), creds)
+        if len(self.esp_pmk) !=  PMK_LMK_LENGTH or len(self.esp_lmk) != PMK_LMK_LENGTH:
+            raise ValueError('LMK and PMK key must be 16Bytes long.')
         self.esp.set_pmk(self.esp_pmk)
         self.inmps = False
         # Asyncio and PIN Interupt definition.
@@ -96,18 +102,28 @@ class Core(BaseCore):
         # Add broadcast peer
         self.esp.add_peer(self.BROADCAST)
         self._loop.create_task(self.on_message())
-        self._loop.create_task(self.advertise())
 
+        await self.added_to_mesh()
+        self._loop.create_task(self.advertise())
+        self._loop.create_task(self.check_neighbours())
+
+    async def added_to_mesh(self):
+        """
+        Triger when node has obtained credentials, until then be idle.
+        """
+        while not self.has_creds():
+            await asyncio.sleep(DEFAULT_S)
+     
     def mps_button_pressed(self, irq):
         """
-        Function to measure how long is button pressed. If between MPS_THRESHOLD and 2*MPS_THRESHOLD, we can exchange credentials.
+        Function to measure how long is button pressed. If between MPS_THRESHOLD_MS and 2*MPS_THRESHOLD_MS, we can exchange credentials.
         """    
         if irq.value() == 0:
             self.mps_start = time.ticks_ms()
         elif irq.value() == 1:
             self.mps_end = time.ticks_ms()
         self.dprint("[MPS] button presed for: ", time.ticks_diff(self.mps_end, self.mps_start))
-        if MPS_THRESHOLD < time.ticks_diff(self.mps_end, self.mps_start) < 2*MPS_THRESHOLD:
+        if MPS_THRESHOLD_MS < time.ticks_diff(self.mps_end, self.mps_start) < 2*MPS_THRESHOLD_MS:
             self._loop.create_task(self.allow_mps())
             if not self.has_creds():
                 self._loop.create_task(self.send_mps())
@@ -119,8 +135,8 @@ class Core(BaseCore):
         Allow exchange of credentials only for some amount of time.
         """
         self.inmps = True
-        self.dprint("\t[MPS ALLOWED] for: ", MPS_TIMER, "seconds.")
-        await asyncio.sleep(MPS_TIMER)
+        self.dprint("\t[MPS ALLOWED] for: ", MPS_TIMER_S, "seconds.")
+        await asyncio.sleep(MPS_TIMER_S)
         self.dprint("\t[MPS ALLOWED ENDED] now")
         self.inmps = False
 
@@ -131,7 +147,7 @@ class Core(BaseCore):
         """
         try:
             self._loop.run_until_complete(self._lock.acquire())
-            await asyncio.wait_for(self.obtain_creds(), MPS_TIMER)
+            await asyncio.wait_for(self.obtain_creds(), MPS_TIMER_S)
         except asyncio.TimeoutError:
             print('ERROR : MPS timeout!')
         except OSError as e:
@@ -144,21 +160,65 @@ class Core(BaseCore):
         while not self.has_creds():
             send_msg = self.send_creds(0, self.creds, peer=self.BROADCAST)
             await asyncio.sleep(DEFAULT_S)
+        self.dprint("\t[MPS credentials obtained] ")
         self._lock.release()
+
+    def save_neighbour(self, lst: "list of [node_id, node_cntr, node_rssi, last_rx, last_tx]"):
+        adv_node = tuple(lst)
+        self.neighbours[node_id] = adv_node         # update core.neigbours with new values.
+    
+    def update_neighbour(self, node):
+        """
+        Update database of neighbours. On first encounter of new node immediately resend advertisement.
+        Record indatabase is dict {node: (node, cnt, rssi, last_rx, last_tx)}
+        """
+        record  = self.neighbours.get(node.id, None)
+        last_tx = 0
+        last_rx = time.ticks_ms()
+        if record:
+            node_id,_,_, _,last_tx = record
+            if node_id == self._id:
+                return
+        else:
+            last_tx = time.ticks_ms()
+            signed_msg = self.send_msg(self.BROADCAST, node)
+            self.dprint("[Advertise imedietly forward on new node]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
+        self.save_neighbour(list(node.__dict__.values()) + [last_rx, last_tx])
+   
+    async def check_neighbours(self):
+        """
+        Task will each second check old records and wipe them out.
+        It will also advertise other nodes every 13s if they are active.
+        """
+        while True:
+            for record in self.neighbours.values():
+                t = time.ticks_ms()
+                node_id, node_cntr, node_rssi, last_rx, last_tx = record
+                if node_id == self._id:
+                    continue
+                elif time.ticks_diff(t, last_rx) > 2*ADVERTISE_OTHERS_MS:
+                    del self.neighbours[node_id]
+                elif time.ticks_diff(last_rx, last_tx) > ADVERTISE_OTHERS_MS:
+                    adv = Advertise(node_id, node_cntr, node_rssi)
+                    last_tx = t
+                    signed_msg = self.send_msg(self.BROADCAST, adv)
+                    self.save_neighbour([node_id, node_cntr, node_rssi, last_rx, last_tx])
+                    self.dprint(self.neighbours)
+                    self.dprint("[Advertise every 13s database]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
+            await asyncio.sleep(1)
 
     async def advertise(self):
         """
-        Propagation of the list of all the nodes in mesh.
+        Actualize node's own values in database and send to veryone in the mesh.
         """
+        self.save_neighbour([self._id, self.cntr, self.rssi, 0, 0])
         while True:
-            # Actualize node's own values in database.
-            self.neighbours[self._id] = (self._id, self.cntr, self.rssi)
-            # Send whole table record by record.
-            for v in self.neighbours.values():
-                adv = Advertise(*v)
-                signed_msg = self.send_msg(self.BROADCAST, adv)
-                self.dprint("[Advertise send]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
-
+            self.cntr = 0
+            self.rssi = 0
+            self.save_neighbour([self._id, self.cntr, self.rssi, 0, 0])
+            adv = Advertise(self._id, self.cntr, self.rssi)
+            signed_msg = self.send_msg(self.BROADCAST, adv)
+            self.dprint("[Advertise send]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
             await asyncio.sleep(ADVERTISE_S)
 
     def get_message_with_digest(self, buf):
@@ -184,7 +244,7 @@ class Core(BaseCore):
             while True:
                 buf = buf[next_msg:]
                 msg, digest, msg_len = self.get_message_with_digest(buf)
-                if self.verify_sign(msg, digest):           # Unpack and process the message only if the digest is correct.
+                if self.verify_sign(msg, digest):
                     obj = await unpack_message(msg, self)
                     self.dprint("[On Message Verified received] obj: ", obj)
                 # If in exchange mode expect creds and wrong sign because we don't have the correct creds.

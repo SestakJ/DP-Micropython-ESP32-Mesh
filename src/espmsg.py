@@ -41,10 +41,8 @@ class Advertise:
         self.rssi = rssi
     
     async def process(self, core: "core.Core"):
-        adv_node = tuple(self.__dict__.values()) #(self.id, self.mesh_cntr, self.rssi)
-        core.neighbours[self.id] = adv_node         # update core.mneigbours with new values.
-        dprint(type(self), "Node advertised process: ", *adv_node)
-
+        core.update_neighbour(self)
+        
     def __repr__(self):
         return f"Node_ID: {self.id} Centrality: {self.mesh_cntr} RSSI: {self.rssi}"
 

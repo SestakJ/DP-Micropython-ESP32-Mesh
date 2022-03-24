@@ -71,7 +71,7 @@ class BaseCore:
         """
         gimme_creds = ObtainCreds(flag, self._id, creds)     # Default creds value is 32x"\x00".
         send_msg = self.send_msg(peer, gimme_creds)
-        self.dprint("\t\t[MPS] Obtain creds send msg: ", send_msg)
+        # self.dprint("\t\t[MPS] Obtain creds send msg: ", send_msg)
         return send_msg
 
     def dprint(self, *args):
