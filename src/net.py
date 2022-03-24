@@ -76,7 +76,7 @@ class ESP:
     def set_pmk(self, pmk):
         self.esp.set_pmk(pmk)
 
-    def add_peer(self, peer, lmk=None, channel=0, ifidx=network.STA_IF, encrypt=False):
+    def add_peer(self, peer, lmk=None, channel=0, ifidx=network.AP_IF, encrypt=False):
         try:
             return self.esp.add_peer(peer, lmk, channel, ifidx, encrypt)
         except OSError as e:
