@@ -165,6 +165,7 @@ class Core(BaseCore):
 
     def save_neighbour(self, lst: "list of [node_id, node_cntr, node_rssi, last_rx, last_tx]"):
         adv_node = tuple(lst)
+        node_id = adv_node[0]
         self.neighbours[node_id] = adv_node         # update core.neigbours with new values.
     
     def update_neighbour(self, node):
