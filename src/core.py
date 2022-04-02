@@ -14,8 +14,7 @@ from src.net import Net, ESP
 from src.espmsg import  Advertise, ObtainCreds, RootElected, ClaimChild, ClaimChildRes, NodeFail, \
                         pack_message, unpack_message, PACKETS, ESP_TYPE
 from src.utils import init_button
-from src.basecore import BaseCore
-
+from src.ucrypto.hmac import HMAC, compare_digest, new
 
 # User defined constants.
 CONFIG_FILE = 'config.json'
@@ -36,7 +35,7 @@ PMK_LMK_LENGTH = const(16)
 """
 Core class responsible for mesh operations.
 """
-class Core(BaseCore):
+class Core():
     BROADCAST = b'\xff\xff\xff\xff\xff\xff'
     DEBUG = True
 
@@ -45,21 +44,28 @@ class Core(BaseCore):
             self._config = json.loads(f.read())
         # Network and ESPNOW interfaces.
         self.ap = Net(1)                # Access point interface.
-        self.ap.config(hidden=True)
-        # Predefined only for initial setup via microdot, not important now.
-        # self.ap_essid = AP_WIFI_NAME
-        # self.ap_password = AP_WIFI_PASSWORD
-        # self.ap_authmode = AUTH_WPA_WPA2_PSK   # WPA/WPA2-PSK mode.
-        # self.ap.config(essid=self.ap_essid, password=self.ap_password, authmode=self.ap_authmode, hidden=0)
         self.sta = Net(0)               # Station interface
         self.esp = ESP()
-        # Node definitions
+        # Node definitions.
         self._id = self.ap.wlan.config('mac')
-        # machine.unique_id()
         self.cntr = 0
         self.rssi = 0.0
         self.neighbours = {}
         # User defined from config.json.
+        self.get_config()
+        self.esp.set_pmk(self.esp_pmk)
+        self.inmps = False
+        # Asyncio and PIN Interupt definition.
+        self.button = init_button(RIGHT_BUTTON, self.mps_button_pressed)
+        self.mps_start = self.mps_end = 0
+        self._loop = asyncio.get_event_loop()
+        self._lock = asyncio.Lock()
+
+    def get_config(self):
+        self.ap_essid = self._config.get('APWIFI')[0]
+        self.ap_password = self._config.get('APWIFI')[1]
+        self.sta_ssid = self._config.get('STAWIFI')[0]
+        self.sta_password = self._config.get('STAWIFI')[1]
         creds = self._config.get('credentials')
         if creds is None:
             creds = CREDS_LENGTH*b'\x00'
@@ -74,13 +80,6 @@ class Core(BaseCore):
         self.esp_lmk = self._config.get('esp_lmk').encode()
         if len(self.esp_pmk) !=  PMK_LMK_LENGTH or len(self.esp_lmk) != PMK_LMK_LENGTH:
             raise ValueError('LMK and PMK key must be 16Bytes long.')
-        self.esp.set_pmk(self.esp_pmk)
-        self.inmps = False
-        # Asyncio and PIN Interupt definition.
-        self.button = init_button(RIGHT_BUTTON, self.mps_button_pressed)
-        self.mps_start = self.mps_end = 0
-        self._loop = asyncio.get_event_loop()
-        self._lock = asyncio.Lock()
 
     def dprint(self, *args):
         if self.DEBUG:
@@ -104,15 +103,51 @@ class Core(BaseCore):
         self._loop.create_task(self.on_message())
 
         await self.added_to_mesh()
+        # TODO uncommenct
         self._loop.create_task(self.advertise())
         self._loop.create_task(self.check_neighbours())
-
+   
     async def added_to_mesh(self):
         """
         Triger when node has obtained credentials, until then be idle.
         """
+        print(self.has_creds(), "added to the mesh")
         while not self.has_creds():
             await asyncio.sleep(DEFAULT_S)
+
+    def has_creds(self):
+        return int.from_bytes(self.creds, "big")
+
+    def send_msg(self, peer=None, msg: "espmsg.class" = ""):
+        """
+        Create message from class object and send it through espnow.
+        """
+        packed_msg = pack_message(msg) # Creates byte-like string.
+        digest_hash = self.sign_message(packed_msg)
+        signed_msg = packed_msg + digest_hash
+        self.esp.send(peer, signed_msg)
+        return signed_msg
+
+    def sign_message(self, msg):
+        """
+        Sign message with HMAC hash from sha256(by default) only if credentials are available.
+        """
+        mac = HMAC(self.creds, msg)
+        digest_hash = mac.digest()
+        return digest_hash
+
+    def verify_sign(self, msg, msg_digest):
+        """
+        Check if the digest match with the same credentials. If not drop packet.
+        """
+        if not msg_digest or not msg:
+            return False
+        my_digest  = self.sign_message(msg)
+        if len(my_digest) != len(msg_digest):
+            return False
+        return compare_digest(my_digest, bytes(msg_digest, 'utf-8'))
+
+
      
     def mps_button_pressed(self, irq):
         """
@@ -162,6 +197,15 @@ class Core(BaseCore):
             await asyncio.sleep(DEFAULT_S)
         self.dprint("\t[MPS credentials obtained] ")
         self._lock.release()
+
+    def send_creds(self, flag, creds, peer=BROADCAST):
+        """
+        Sending credentials, should be used in exchange mode(MPS) only.
+        """
+        gimme_creds = ObtainCreds(flag, self._id, creds)     # Default creds value is 32x"\x00".
+        send_msg = self.send_msg(peer, gimme_creds)
+        # self.dprint("\t\t[MPS] Obtain creds send msg: ", send_msg)
+        return send_msg
 
     def save_neighbour(self, lst: "list of [node_id, node_cntr, node_rssi, last_rx, last_tx]"):
         adv_node = tuple(lst)
@@ -265,30 +309,11 @@ class Core(BaseCore):
                     next_msg = 0
                     break
 
-    # DONE Instead of Node class use tuple()
-
-    # DONE [-have a look on more practices] PEP8 rules for better understanding of code. ESPMSG names without underling, neighbours is private make it neighbours.
-
-    # DONE in MPS exhcange symetric key. Every message will be signed with hmac(sha256) fucntion for security
-    # DONE- i have button time detection and decides if i offer or request creds
-    # DONE- downloaded hmac lib for signing with sha256
-    # DONE- must do BaseCore class with sendig and receving msg with hmac for decryption.
-    # MPS like procces, from foto
-    # Client                  Mesh Node
-    #                         Only if button pressed on this node process the packet
-    #                         Listtens for packet with "gimme creds"
-    # Button pressed
-    # Send packet "gimme creds"
-    #             <Handshake>(probably add_peer with LMK for encrypt comm)
-    #                         Send creds (shared symetric key created for Mesh comm. Every packet will be signed with this key.)
-
-
     # TODO Root node after 2,5*ADV time no new node appeared start election process. Only the root node will send claim.
     # Centrality value of nodes will be computed like E(1/abs(rssi))^1/2
+
+    # TODO Root node confirmation - if multiple roots, select the one with lowes MAC for example.
     
-    # TODO Press one button and AP Wifi becomes visible and can connect to web server to set creds..
-
-
 def main():
     c = Core()
 

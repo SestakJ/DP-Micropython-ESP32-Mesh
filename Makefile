@@ -11,7 +11,6 @@ all: 0
 	$(CMD) -p /dev/ttyUSB$(port) put boot.py
 	$(CMD) -p /dev/ttyUSB$(port) put main.py	
 	$(CMD) -p /dev/ttyUSB$(port) put src/core.py ./src/core.py
-	$(CMD) -p /dev/ttyUSB$(port) put src/basecore.py ./src/basecore.py
 	$(CMD) -p /dev/ttyUSB$(port) put src/espmsg.py ./src/espmsg.py
 	$(CMD) -p /dev/ttyUSB$(port) put src/utils.py ./src/utils.py
 	$(CMD) -p /dev/ttyUSB$(port) put src/net.py ./src/net.py

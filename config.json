@@ -1,0 +1,43 @@
+{
+    "credentials" : "hellotheregeneralkenobinobodyex",
+    "_credentials" : null,
+    "esp_pmk" : "hellotheregenera",
+    "esp_lmk" : "lkenobinobodyexp",
+    "root" : "",
+
+    "1APWIFI":
+      [
+        "ESP1",
+        "espespesp"
+      ],
+    "1STAWIFI" : 
+      [
+        null,
+        null
+      ]
+      
+      ,
+      "2APWIFI":
+      [
+        "ESP2",
+        "espespesp"
+      ],
+      "2STAWIFI" : 
+      [
+        "ESP1",
+        "espespesp"
+      ]
+      ,
+
+      "APWIFI":
+      [
+        "ESP3",
+        "espespesp"
+      ],
+      "STAWIFI" : 
+      [
+        "ESP2",
+        "espespesp"
+      ]
+    
+  }
