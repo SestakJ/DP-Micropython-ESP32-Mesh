@@ -4,6 +4,9 @@ import neopixel
 import network
 import time
 
+import binascii
+import random
+
 #In ESP32-buddy there is default LED on 25 pin and buttons on pin 0 and 32.
 LED_PIN = 25
 LEFT_BUTTON = 32
@@ -45,3 +48,13 @@ async def blink(c=(10, 0, 0)):
         c = ( r, g, b)
         led.write()
         await asyncio.sleep_ms(700)
+
+_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ123456789'
+def id_generator(size=8):
+    """
+    Fucntion generates random string.
+    """
+    ret = ""
+    for i in range(size):
+        ret = ret + random.choice(_ALPHABET)
+    return ret
