@@ -10,6 +10,7 @@ import struct
 try:
     import uasyncio as asyncio
     from ubinascii import hexlify, unhexlify
+    import ucryptolib
 except:
     import asyncio
     from binascii import hexlify, unhexlify
@@ -25,11 +26,11 @@ def dprint(*args):
 class ESP_TYPE:
     ADVERTISE=1
     OBTAIN_CREDS=7
+    SEND_WIFI_CREDS=5
 
     ROOT_ELECTED=2
     CLAIM_CHILD_REQUEST=3
     CLAIM_CHILD_RESPONSE=4
-    CLAIM=5
     NODE_FAIL=6
 
 class Advertise:
@@ -110,6 +111,18 @@ ObtainCreds_methods = {
     ObtainCreds.UNREG       : ObtainCreds.unregister
 }
 
+class SendWifiCreds:
+    type = ESP_TYPE.SEND_WIFI_CREDS
+    def __init__(self, dst_node, length_essid, essid, passwd, key=None):
+        self.adst_node = dst_node
+        self.bessid_length = length_essid
+        self.cessid = essid           # It has 16 chars because it is already encrypted by AES.
+        self.zpasswd = passwd         # It has 16 chars because it is already encrypted by AES.
+        
+    async def process(self, core : "core.Core"):
+        core.parent_claim_received(self)
+
+
 
 class RootElected(Advertise):
     type = ESP_TYPE.ROOT_ELECTED
@@ -150,10 +163,11 @@ class NodeFail:
 PACKETS = {
     ESP_TYPE.ADVERTISE              : (Advertise, "!6shf"),
     ESP_TYPE.OBTAIN_CREDS           : (ObtainCreds, "!B6s32s"),
+    ESP_TYPE.SEND_WIFI_CREDS        : (SendWifiCreds, "!6sh16s16s"),
+
     ESP_TYPE.ROOT_ELECTED           : (RootElected, "!6shf"),
     ESP_TYPE.CLAIM_CHILD_REQUEST    : (ClaimChild, "!6sf6s"),
     ESP_TYPE.CLAIM_CHILD_RESPONSE   : (ClaimChildRes, "!6sf6s"),
-    # 5: Claim
     ESP_TYPE.NODE_FAIL              : (NodeFail, "!6s")
 }
 
@@ -201,48 +215,58 @@ async def main():
     # print(ad.neighbours)
 
 
-    gimme_creds = ObtainCreds(0,b'\xff\xff\xff\xff\xff\xa0' )
+    # gimme_creds = ObtainCreds(0,b'\xff\xff\xff\xff\xff\xa0' )
+    # # print(gimme_creds.__dict__.values())
+    # try:
+    #     msg = pack_message(gimme_creds)
+    # except:
+    #     print(msg)
+    # print("HELLO")
+    # print(msg)
     # print(gimme_creds.__dict__.values())
-    try:
-        msg = pack_message(gimme_creds)
-    except:
-        print(msg)
-    print("HELLO")
-    print(msg)
-    print(gimme_creds.__dict__.values())
 
-    tmpmsg = await unpack_message(msg, "hej")
+    # tmpmsg = await unpack_message(msg, "hej")
 
-    gimme_creds = ObtainCreds(1,b'\xff\xff\xff\xff\xff\xa0' )
-    # print(gimme_creds.__dict__.values())
-    try:
-        msg = pack_message(gimme_creds)
-    except:
-        print(msg)
-    print("HELLO")
+    # gimme_creds = ObtainCreds(1,b'\xff\xff\xff\xff\xff\xa0' )
+    # # print(gimme_creds.__dict__.values())
+    # try:
+    #     msg = pack_message(gimme_creds)
+    # except:
+    #     print(msg)
+    # print("HELLO")
 
     
-    tmpmsg = await unpack_message(msg, "hej")
+    # tmpmsg = await unpack_message(msg, "hej")
     
-    gimme_creds = ObtainCreds(2,b'\xff\xff\xff\xff\xff\xa0' )
-    # print(gimme_creds.__dict__.values())
-    msg = pack_message(gimme_creds)
+    # gimme_creds = ObtainCreds(2,b'\xff\xff\xff\xff\xff\xa0' )
+    # # print(gimme_creds.__dict__.values())
+    # msg = pack_message(gimme_creds)
+    # print(msg)
+
+    # tmpmsg = await unpack_message(msg, "hej")
+    # gimme_creds = ObtainCreds(3,b'\xff\xff\xff\xff\xff\xa0' )
+    # # print(gimme_creds.__dict__.values())
+    # msg = pack_message(gimme_creds)
+    # print(msg)
+
+    # tmpmsg = await unpack_message(msg, "hej")
+
+    # gimme_creds = ObtainCreds(4,b'\xff\xff\xff\xff\xff\xa0' )
+    # # print(gimme_creds.__dict__.values())
+    # msg = pack_message(gimme_creds)
+    # print(msg)
+
+    # tmpmsg = await unpack_message(msg, "hej")
+
+    essid = b'ESP' + hexlify(b'<q\xbf\xe4\x8d\xa1')
+    passwd = b'GpWVdRn3uMNPf1Ep' #id_generator()
+    claim = SendWifiCreds(b'<q\xbf\xe4\x8d\xa1', len(essid), essid, passwd)
+    print(claim.__dict__.values())
+    msg = pack_message(claim)
     print(msg)
 
-    tmpmsg = await unpack_message(msg, "hej")
-    gimme_creds = ObtainCreds(3,b'\xff\xff\xff\xff\xff\xa0' )
-    # print(gimme_creds.__dict__.values())
-    msg = pack_message(gimme_creds)
-    print(msg)
+    ret_msg = await unpack_message(msg, "hello")
 
-    tmpmsg = await unpack_message(msg, "hej")
-
-    gimme_creds = ObtainCreds(4,b'\xff\xff\xff\xff\xff\xa0' )
-    # print(gimme_creds.__dict__.values())
-    msg = pack_message(gimme_creds)
-    print(msg)
-
-    tmpmsg = await unpack_message(msg, "hej")
     # root = Root_elected(id, cntr, rssi)
     # dprint(root)
     # msg = pack_message(root)
