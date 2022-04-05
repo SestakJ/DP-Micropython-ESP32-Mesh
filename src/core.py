@@ -11,10 +11,11 @@ import struct
 import json
 from network import AUTH_WPA_WPA2_PSK
 from src.net import Net, ESP
-from src.espmsg import  Advertise, ObtainCreds, RootElected, ClaimChild, ClaimChildRes, NodeFail, \
+from src.espmsg import  Advertise, ObtainCreds, SendWifiCreds, RootElected, ClaimChild, ClaimChildRes, NodeFail, \
                         pack_message, unpack_message, PACKETS, ESP_TYPE
-from src.utils import init_button
+from src.utils import init_button, id_generator
 from src.ucrypto.hmac import HMAC, compare_digest, new
+import ucryptolib as cryptolib
 
 # User defined constants.
 CONFIG_FILE = 'config.json'
@@ -45,7 +46,11 @@ class Core():
         # Network and ESPNOW interfaces.
         self.ap = Net(1)                # Access point interface.
         self.sta = Net(0)               # Station interface
+        self.ap_essid = self.ap.wlan.config('essid')      # Must be multiple of 16, class will take care of.
+        self.ap_password = id_generator(16)               # Must be multiple of 16
+        self.sta_ssid = self.sta_password = None
         self.esp = ESP()
+        self.creds  = b'\x00'
         # Node definitions.
         self._id = self.ap.wlan.config('mac')
         self.cntr = 0
@@ -60,15 +65,16 @@ class Core():
         self.mps_start = self.mps_end = 0
         self._loop = asyncio.get_event_loop()
         self._lock = asyncio.Lock()
+        # Flags for root election and topology addition.
+        self.neigh_last_changed = 0
+        self.root = b''
+        self.in_topology = False
 
     def get_config(self):
-        self.ap_essid = self._config.get('APWIFI')[0]
-        self.ap_password = self._config.get('APWIFI')[1]
-        self.sta_ssid = self._config.get('STAWIFI')[0]
-        self.sta_password = self._config.get('STAWIFI')[1]
         creds = self._config.get('credentials')
         if creds is None:
             creds = CREDS_LENGTH*b'\x00'
+        # TODO Not neccessary to have fixed length. It adds zeroes itself.
         elif len(creds) != CREDS_LENGTH:
             creds = creds.encode()
             new_creds = creds + (CREDS_LENGTH - len(creds))*b'\x00'
@@ -111,9 +117,10 @@ class Core():
         """
         Triger when node has obtained credentials, until then be idle.
         """
-        print(self.has_creds(), "added to the mesh")
         while not self.has_creds():
             await asyncio.sleep(DEFAULT_S)
+        self._loop.create_task(self.claim_children())
+        self._loop.create_task(self.check_root_election())
 
     def has_creds(self):
         return int.from_bytes(self.creds, "big")
@@ -204,7 +211,6 @@ class Core():
         """
         gimme_creds = ObtainCreds(flag, self._id, creds)     # Default creds value is 32x"\x00".
         send_msg = self.send_msg(peer, gimme_creds)
-        # self.dprint("\t\t[MPS] Obtain creds send msg: ", send_msg)
         return send_msg
 
     def save_neighbour(self, lst: "list of [node_id, node_cntr, node_rssi, last_rx, last_tx]"):
@@ -225,6 +231,7 @@ class Core():
             if node_id == self._id:
                 return
         else:
+            self.neigh_last_changed = time.ticks_ms()
             last_tx = time.ticks_ms()
             signed_msg = self.send_msg(self.BROADCAST, node)
             self.dprint("[Advertise imedietly forward on new node]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
@@ -243,6 +250,7 @@ class Core():
                     continue
                 elif time.ticks_diff(t, last_rx) > 2*ADVERTISE_OTHERS_MS:
                     del self.neighbours[node_id]
+                    self.neigh_last_changed = t
                 elif time.ticks_diff(last_rx, last_tx) > ADVERTISE_OTHERS_MS:
                     adv = Advertise(node_id, node_cntr, node_rssi)
                     last_tx = t
@@ -251,6 +259,58 @@ class Core():
                     self.dprint(self.neighbours)
                     self.dprint("[Advertise every 13s database]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
             await asyncio.sleep(1)
+
+    async def check_root_election(self):
+        """
+        After neighbours don't change for some time, trigger flag to simulate root election.
+        """
+        while not self.neigh_last_changed:
+            await asyncio.sleep(DEFAULT_S)
+        while True:
+            if time.ticks_diff(time.ticks_ms(), self.neigh_last_changed) > 5*1000: # TODO NEIGHBOURS_NOT_CHANGED_FOR
+                # TODO root election automatically
+                self.dprint(f"[ROOT ELECTION] can start, neigh database ot changed for {NEIGHBOURS_NOT_CHANGED_FOR} seconds")
+                self.root = b'<q\xbf\xe4\x8b\x89'
+                if self._id == self.root:
+                    self.in_topology = True
+                    self.dprint(f"[ROOT ELECTION] finish")
+                break
+            else:
+                await asyncio.sleep(DEFAULT_S)
+
+    def aes_encrypt(self, value : 'str'):
+        aes = cryptolib.aes(self.creds[:16], 2, b"1234"*4)
+        enc = aes.encrypt((value + 16*'\x00')[:16])
+        return enc
+
+    def aes_decrypt(self, value):
+        aes = cryptolib.aes(self.creds.decode()[:16], 2, b"1234"*4)
+        dec = aes.decrypt(value)
+        return dec.decode()
+    
+    async def claim_children(self):
+        # In_topology setted for root node statically for demo purpouse. It will be set by root election process on root node.
+        # Or if station succefully connected to parent node, it can starts its own AP and claim children.
+        while not (self.in_topology or self.sta.isconnected()):
+            await asyncio.sleep(DEFAULT_S)
+        # self.ap_password = b'espespespespesp0'
+        print(f"CLaim children in espMSG {self.ap_essid} {self.ap_password}")
+        self.in_topology = True
+        for record in self.neighbours.values(): # TODO only for some nodes with good RSSI.
+            t = time.ticks_ms()
+            node_id, node_cntr, node_rssi, last_rx, last_tx = record
+            self.claim_child(node_id, self.aes_encrypt(self.ap_essid), self.aes_encrypt(self.ap_password))
+
+    def claim_child(self, dst_node, essid, pwd):
+        wifi_creds = SendWifiCreds(dst_node, len(self.ap_essid), essid, pwd, key=self.creds.decode()[:16])
+        signed_msg = self.send_msg(self.BROADCAST, wifi_creds)
+
+    def parent_claim_received(self, wifi_creds):
+        if wifi_creds.adst_node != self._id or self.in_topology:
+            return
+        self.sta_ssid = self.aes_decrypt(wifi_creds.cessid)[:wifi_creds.bessid_length]
+        self.sta_password = self.aes_decrypt(wifi_creds.zpasswd)
+        print(f"[RECEIVED WIFI CREDS FROM PARENT] {self.sta_ssid} and {self.sta_password}")
 
     async def advertise(self):
         """

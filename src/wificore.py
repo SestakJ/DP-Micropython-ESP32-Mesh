@@ -16,9 +16,6 @@ from src.espmsg import  Advertise, ObtainCreds, RootElected, ClaimChild, ClaimCh
 import sys
 from src.core import Core
 
-AP_WIFI_NAME = "ESP"            # Doesn't matter because it will be hidden.
-AP_WIFI_PASSWORD = "espespesp"  # Must be at least 8 characters long for WPA/WPA2-PSK authentization.
-
 # User defined constants.
 CONFIG_FILE = 'config.json'
 
@@ -33,15 +30,21 @@ class WifiCore():
     DEBUG = True
 
     def __init__(self):
-        self.c = Core()
-        self.ap = self.c.ap
-        self.sta = self.c.sta
-        self._config = self.c._config
-        self.ap_essid = self._config.get('APWIFI')[0]
-        self.ap_password = self._config.get('APWIFI')[1]
-        self.sta_ssid = self._config.get('STAWIFI')[0]
+        self.core = Core()
+        self._loop = self.core._loop
+        self._loop.create_task(self.core._run())
+        self.ap = self.core.ap
+        self.sta = self.core.sta
+        self._config = self.core._config
+        self.ap_essid = self.core.ap_essid
+        self.ap_password = self.core.ap_password
+        self.sta_ssid = self.sta_password = None
+
+        # self.ap_essid = self.core.ap_essid
+        # self.ap_password = self.core.ap_password
+        # self.sta_ssid = self._config.get('STAWIFI')[0]
         self.ap_authmode = AUTH_WPA_WPA2_PSK   # WPA/WPA2-PSK mode.
-        self.sta_password = self._config.get('STAWIFI')[1]
+        # self.sta_password = self._config.get('STAWIFI')[1]
 
         # Node definitions
         self._id = self.ap.wlan.config('mac')
@@ -54,8 +57,8 @@ class WifiCore():
             new_creds = creds + (CREDS_LENGTH - len(creds))*b'\x00'
             creds = new_creds[:CREDS_LENGTH]
         self.creds = creds              # Is 32Bytes long for HMAC(SHA256) signing.
-        self._loop = asyncio.get_event_loop()
-
+        
+        self._loop = self.core._loop
         self.children_writers = {}
         self.parent = self.parent_reader = self.parent_writer = None
 
@@ -81,8 +84,14 @@ class WifiCore():
         self._loop.create_task(self.start_parenting())
     
     async def connect_to_parent(self):
+        print("Connect to parent beginnig")
+        while not (self.core.sta_ssid or self.core.root == self._id): # TODO maybe not Either parent claimed him or is root.
+            await asyncio.sleep(DEFAULT_S)
         self.sta.wlan.disconnect()
-        if self.sta_ssid:
+        if self.core.sta_ssid:
+            print("Connect to parent assign sta creds and connect")
+            self.sta_ssid = self.core.sta_ssid
+            self.sta_password = self.core.sta_password
             await self.sta.do_connect(self.sta_ssid, self.sta_password)
         else:
             return
@@ -94,13 +103,6 @@ class WifiCore():
         self._loop.create_task(self.send_beacon_to_parent())
         self._loop.create_task(self.receive_from_parent())
         self.dprint("[OPEN CONNECTION created")
-
-    async def send_update_children(self, msg = ["hello to child", 195]):  
-        while True:
-            print("[SEND] to children")
-            for destination in self.children_writers:
-                await self.send_msg(destination, msg)
-            await asyncio.sleep(DEFAULT_S)
 
     async def resend_to_children(self, msg):
         print("[RESEND] to children")
@@ -202,6 +204,13 @@ class WifiCore():
         except Exception as e:
             print("[Start Server end] ", e)
 
+    async def send_update_children(self, msg = ["hello to child", 195]):  
+        while True:
+            print("[SEND] to children")
+            for destination in self.children_writers:
+                await self.send_msg(destination, msg)
+            await asyncio.sleep(DEFAULT_S)
+
     async def receive_from_child(self, reader, writer):
         print("[Received from child]: add child")
         self.children_writers[writer.get_extra_info('peername')] = writer
@@ -249,6 +258,11 @@ class WifiCore():
                 self.parent = None
                 self.parent_writer = None
                 self.parent_reader = None
+
+# TODO Clean UP
+# TODO Open connection sometimes returns StreamIO with ERROR104 ECONNRESET
+# TODO Form a topology from JSON
+# TODO Form a topology automatically. 
 
 def main():
     from src.wificore import WifiCore

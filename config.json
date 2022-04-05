@@ -5,6 +5,20 @@
     "esp_lmk" : "lkenobinobodyexp",
     "root" : "",
 
+    "topology": {"node" : "3c:71:bb:e4:8b:89",
+                      "child" : 
+                      [
+                         {"node" : "3c:71:bb:e4:8b:a1",
+                          "child": 
+                          [
+                              {
+                                  "node": "3c:71:bb:e4:8b:b9",
+                                  "child": {}  
+                              }
+                          ]
+                          }
+                      ]
+                      },
     "1APWIFI":
       [
         "ESP1",

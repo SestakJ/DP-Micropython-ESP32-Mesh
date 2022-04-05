@@ -1,6 +1,6 @@
 
 try:
-    from src.core import Core
-    c = Core()
+    from src.wificore import WifiCore
+    c = WifiCore()
 except Exception as e:
     print('ERROR: ', e)
