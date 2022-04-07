@@ -35,29 +35,15 @@ class WifiCore():
         self._loop.create_task(self.core._run())
         self.ap = self.core.ap
         self.sta = self.core.sta
+        self.sta.wlan.disconnect()
         self._config = self.core._config
         self.ap_essid = self.core.ap_essid
         self.ap_password = self.core.ap_password
         self.sta_ssid = self.sta_password = None
-
-        # self.ap_essid = self.core.ap_essid
-        # self.ap_password = self.core.ap_password
-        # self.sta_ssid = self._config.get('STAWIFI')[0]
         self.ap_authmode = AUTH_WPA_WPA2_PSK   # WPA/WPA2-PSK mode.
-        # self.sta_password = self._config.get('STAWIFI')[1]
-
         # Node definitions
         self._id = self.ap.wlan.config('mac')
         # User defined from config.json.
-        creds = self._config.get('credentials')
-        if creds is None:
-            creds = CREDS_LENGTH*b'\x00'
-        elif len(creds) != CREDS_LENGTH:
-            creds = creds.encode()
-            new_creds = creds + (CREDS_LENGTH - len(creds))*b'\x00'
-            creds = new_creds[:CREDS_LENGTH]
-        self.creds = creds              # Is 32Bytes long for HMAC(SHA256) signing.
-        
         self._loop = self.core._loop
         self.children_writers = {}
         self.parent = self.parent_reader = self.parent_writer = None
@@ -72,7 +58,14 @@ class WifiCore():
         """
         print('\nStart: node ID: {}\n'.format(self._id))
         self._loop.create_task(self._run())
-        self._loop.run_forever()
+        try:
+            self._loop.run_forever()
+        except Exception as e:    # TODO Every except raises exception meaning that the task is broken, reset whole device
+            # asyncio.run(self.close_all())
+            print(e)
+        #     import machine
+        #     # machine.reset() # TODO uncomment. It solves the problem with ERROR 104 ECONNRESET after Soft Reset on child.
+
 
     async def _run(self):
         """
@@ -84,154 +77,103 @@ class WifiCore():
         self._loop.create_task(self.start_parenting())
     
     async def connect_to_parent(self):
-        print("Connect to parent beginnig")
+        """
+        Wait for the right signal. Assign WiFi credentials and connect to it, open connection with socket. 
+        Or node is to be the root so return.
+        """
         while not (self.core.sta_ssid or self.core.root == self._id): # TODO maybe not Either parent claimed him or is root.
             await asyncio.sleep(DEFAULT_S)
-        self.sta.wlan.disconnect()
+        self.core.DEBUG = False     # Stop Debug messages in EspCore
+        self.sta.wlan.disconnect()  # Disconnect from any previously connected WiFi.
         if self.core.sta_ssid:
-            print("Connect to parent assign sta creds and connect")
             self.sta_ssid = self.core.sta_ssid
             self.sta_password = self.core.sta_password
             await self.sta.do_connect(self.sta_ssid, self.sta_password)
+            self.dprint("[Connect to parent WiFi] Done")
         else:
             return
-        self.dprint("[OPEN CONNECTION]")
         self.parent = self.sta.ifconfig()[2]
         self.parent_reader, self.parent_writer = await asyncio.open_connection(self.parent, SERVER_PORT)
-        self.dprint("[OPEN CONNECTION] connected, ", self.parent_reader, self.parent_writer)
-        # self._loop.create_task(self.client_hello(self.parent_reader, self.parent_writer))
-        self._loop.create_task(self.send_beacon_to_parent())
+        self.dprint("[Open connection to parent] Done")
+        self._loop.create_task(self.send_to_parent())
         self._loop.create_task(self.receive_from_parent())
-        self.dprint("[OPEN CONNECTION created")
-
-    async def resend_to_children(self, msg):
-        print("[RESEND] to children")
-        for destination in self.children_writers:
-            await self.send_msg(destination, msg)
         
-    async def send_beacon_to_parent(self):
+    async def send_to_parent(self):
         while True:
-            print("[SEND] to parent")
+            self.dprint("[SEND] to parent")
             await self.send_msg(self.parent, ["Hello to parent", 196])
-            await asyncio.sleep(DEFAULT_S)
+            await asyncio.sleep(15)
             
-    # async def send_parent(self, msg):
-    #     try:
-    #         print("write")
-    #         self.parent_writer.write('{}\n'.format(json.dumps(data)))
-    #         print("drain")
-    #         await self.parent_writer.drain()
-    #     except OSError:
-    #         print(OSError.__dict__)
-    #         raise OSError
-    #         self.parent_writer.close()
-    #         await writer.wait_closed()
-    #         # close()
-    #         return
-    #     except:
-    #         print("Whew!", sys.exc_info()[0], "occurred.")
-    
     async def receive_from_parent(self):
         while True:
             try:
-                print("[Receive] from parent readline")
                 res = await self.parent_reader.readline()
-            # except OSError:
-            #     print(OSError.__dict__)
-            #     raise OSError
-            #     # close()
+                self.dprint("[Receive] from parent message: ", res)
             except Exception as e:
-                print("[Receive] from parent Whew!", e, "occurred.")
-                self.parent = None
-                self.parent_writer = None
-                self.parent_reader = None
-                break
-            await self.resend_to_children(res)
-            try:
-                print('[Receive] from parent', json.loads(res))
-            except ValueError:
-                raise ValueError
-            except Exception as e:
-                print("[Receive] from parent Whew!", e, "occurred.")
+                self.dprint("[Receive] parent conn is prob dead, stop listening. Error: ", e)
+                res = b''
+                raise e
+            if res == b'': # Connection closed by host, clean up. Maybe hard reset.
+                await self.close_connection(self.parent)
+                self.dprint("[Receive] conn is dead")
+                return
+            #TODO create task for processing the message.
+            self._loop.create_task(self.send_to_children_once(res)) # Relay messages to children.
             await asyncio.sleep(2)
-        print("[RECEIVE] parent conn is prob dead, stop listening")
             
-    async def client_hello(self, sreader, swriter):
-        data = ['value', 1]
-        self._loop.create_task(self.receive_from_parent())
-        while True:
-            try:
-                print("write ", data)
-                swriter.write('{}\n'.format(json.dumps(data)))
-                print("drain")
-                await swriter.drain()
-                # print("readline")
-                # res = await sreader.readline()
-            # except OSError:
-            #     print(OSError.__dict__)
-            #     raise OSError
-            #     swriter.close()
-            #     await writer.wait_closed()
-            #     # close()
-            #     return
-            except Exception as e:
-                print("Whew!", e, "occurred.")
-                swriter.close()
-                await swriter.wait_closed()
-            # try:
-            #     print('Received', json.loads(res))
-            # # except ValueError:
-            # #     raise ValueError
-            # #     # close()
-            # #     swriter.close()
-            # #     await writer.wait_closed()
-            # #     return
-            # except Exception as e:
-            #     print("Whew!", e, "occurred.")
-            #     swriter.close()
-            #     await swriter.wait_closed()
-            await asyncio.sleep(2)
-            data[1] += 1
-
     async def start_parenting(self):
+        """
+        Create own WiFi AP and start server for listening for children to connect.
+        """
         self.ap.config(essid=self.ap_essid, password=self.ap_password, authmode=self.ap_authmode, hidden=0)
         while not self.ap.wlan.active():
             await asyncio.sleep(DEFAULT_S)
         self.dprint("[START SERVER]")
         try:
             self._loop.create_task(asyncio.start_server(self.receive_from_child, '0.0.0.0', SERVER_PORT))
-            self._loop.create_task(self.send_update_children(msg=["hello to child From ROOTOOOOT", 195]))
+            self._loop.create_task(self.sending_to_children(msg=["hello to child From ROOTOOOOT", 195]))
         except Exception as e:
-            print("[Start Server end] ", e)
+            self.dprint("[Start Server] error: ", e)
+            raise e
 
-    async def send_update_children(self, msg = ["hello to child", 195]):  
+    async def sending_to_children(self, msg = ["hello to child", 195]):  
         while True:
-            print("[SEND] to children")
-            for destination in self.children_writers:
-                await self.send_msg(destination, msg)
+            self._loop.create_task(self.send_to_children_once(msg))
             await asyncio.sleep(DEFAULT_S)
 
+    async def send_to_children_once(self, msg):
+        # l = self.ap.wlan.status('stations') # Get list of tuples of MAC of connected devices.
+        # children = [mac[0] for mac in l]
+        # TODO Must be SRC MAC and DST MAC in JSON messages, then I can match the mac addresses to the right IP addresses.
+        print("[SEND] to children")
+        for destination in self.children_writers: # But this is tuple(IP, port)
+            # if destination[0] not in children: # Delete old connections from dead child nodes.
+            #     # self._loop.create_task(self.close_connection(destination))
+            #     continue
+            self._loop.create_task(self.send_msg(destination, msg))
+
     async def receive_from_child(self, reader, writer):
-        print("[Received from child]: add child")
         self.children_writers[writer.get_extra_info('peername')] = writer
+        self.dprint("[Receive] child added: ", writer.get_extra_info('peername'))
         try:
             while True:
-                print("[Received from child]: readline()")
                 data = await reader.readline()
-                message = data.decode()
                 addr = writer.get_extra_info('peername')
-
-                print(f"[Received from child] {message} from {addr}")
-                # self._loop.create_task(self.send_msg(writer.get_extra_info('peername'), data))
-        except OSError:
-            pass
-        print("Close the connection")
-        del self.children_writers[writer.get_extra_info('peername')]
-        writer.close()
-        await writer.wait_closed()
-
+                self.dprint(f"[Receive] from node {addr} message {data}")
+                if data == b'': # Connection closed by host. Close children
+                    await self.close_connection(writer.get_extra_info('peername'))
+                    return
+        except Exception as e:
+            self.dprint("[Receive] child conn is prob dead, stop listening. Error: ", e)
+            await self.close_connection(writer.get_extra_info('peername'))
+            return
+            raise e
+        # self.dprint("Close the connection")
+        # del self.children_writers[writer.get_extra_info('peername')]
+        # writer.close()
+        # await writer.wait_closed()
     
-    async def send_msg(self, destination, data):
+    async def send_msg(self, destination, message):
         if not destination:
             return
         writer = None
@@ -241,26 +183,41 @@ class WifiCore():
             writer = self.parent_writer
         else:
             return
-        message = data
         try:
-            print("[SEND] to :", destination, writer)
-            print(f"Send: {message}")
-            writer.write('{}\n'.format(json.dumps(data)))
+            self.dprint("[SEND] to :", destination, writer, " message: ", message)
+            writer.write('{}\n'.format(json.dumps(message)))
             await writer.drain()
             print("[SEND] drained and done")
         except Exception as e:
             print("[Send] Whew! ", e, " occurred.")
+            await self.close_connection(destination)
+    
+    async def close_connection(self, node):
+        writer = None
+        if node == self.parent:
+            writer = self.parent_writer
+            self.parent = None
+            self.parent_writer = None
+            self.parent_reader = None
+        elif node in self.children_writers:
+            writer = self.children_writers[node]
+            del self.children_writers[node]
+        if writer:
             writer.close()
             await writer.wait_closed()
-            if destination in self.children_writers:
-                del self.children_writers[destination]
-            elif destination == self.parent:
-                self.parent = None
-                self.parent_writer = None
-                self.parent_reader = None
+        
+    async def close_all(self):
+        if self.parent_writer:
+            self.close_connection(self.parent)
+        for address, writer in self.children_writers.items():
+            await self.close_connection(address)
+        self.children_writers.clear()
+        self.dprint("[Clean UP of sockets] Done")
 
-# TODO Clean UP
 # TODO Open connection sometimes returns StreamIO with ERROR104 ECONNRESET
+        # [Send] Whew!  [Errno 104] ECONNRESET  occurred.
+        # [Receive] from parent Whew! [Errno 9] EBADF occurred.
+        # Probably DONE -- need testing
 # TODO Form a topology from JSON
 # TODO Form a topology automatically. 
 
