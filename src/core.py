@@ -16,6 +16,7 @@ from src.espmsg import  Advertise, ObtainCreds, SendWifiCreds, RootElected, Clai
 from src.utils import init_button, id_generator
 from src.ucrypto.hmac import HMAC, compare_digest, new
 import ucryptolib as cryptolib
+import math
 
 # User defined constants.
 CONFIG_FILE = 'config.json'
@@ -318,8 +319,7 @@ class Core():
         """
         self.save_neighbour([self._id, self.cntr, self.rssi, 0, 0])
         while True:
-            self.cntr = 0
-            self.rssi = 0
+            self.cntr, self.rssi = await self.get_cntr_rssi(b'')
             self.save_neighbour([self._id, self.cntr, self.rssi, 0, 0])
             adv = Advertise(self._id, self.cntr, self.rssi)
             signed_msg = self.send_msg(self.BROADCAST, adv)
@@ -349,16 +349,7 @@ class Core():
             while True:
                 buf = buf[next_msg:]
                 msg, digest, msg_len = self.get_message_with_digest(buf)
-                if self.verify_sign(msg, digest):
-                    obj = await unpack_message(msg, self)
-                    self.dprint("[On Message Verified received] obj: ", obj)
-                # If in exchange mode expect creds and wrong sign because we don't have the correct creds.
-                elif self.inmps and msg_len == self._creds_msg_size + DIGEST_SIZE:
-                    creds = digest
-                    obj = await unpack_message(msg+creds, self)
-                    self.dprint("[On Message not Verified received] obj: ", obj)
-                else:
-                    self.dprint("[On Message dropped]", msg, msg_len)
+                self._loop.create_task(self.process_message(msg, digest, msg_len))
 
                 # TODO read only first two bytes and then read leng of the packet.
                 # Cannot do because StreamReader.read(), read1() don't work, they read as much as can.
@@ -368,6 +359,30 @@ class Core():
                 else:
                     next_msg = 0
                     break
+
+    async def process_message(self, msg, digest, msg_len):
+        print("process message")
+        if self.verify_sign(msg, digest):
+            obj = await unpack_message(msg, self)
+            self.dprint("[On Message Verified received] obj: ", obj)
+        # If in exchange mode expect creds and wrong sign because we don't have the correct creds.
+        elif self.inmps and msg_len == self._creds_msg_size + DIGEST_SIZE:
+            creds = digest
+            obj = await unpack_message(msg+creds, self)
+            self.dprint("[On Message not Verified received] obj: ", obj)
+        else:
+            self.dprint("[On Message dropped]", msg, msg_len)
+
+    async def get_cntr_rssi(self, router_ssid: bytes):
+        wifies = self.sta.wlan.scan() # Returns (ssid, bssid, channel, RSSI, authmode, hidden)
+        rssi = cntr = 0
+        for record in wifies:
+            if record[0] == router_ssid:
+                rssi = record[3]
+            if record[1] in self.neighbours:
+                eqaution = 1/math.sqrt(abs(record[3]))
+                cntr = cntr + eqaution
+        return cntr, rssi
 
     # TODO Root node after 2,5*ADV time no new node appeared start election process. Only the root node will send claim.
     # Centrality value of nodes will be computed like E(1/abs(rssi))^1/2

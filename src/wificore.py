@@ -83,7 +83,7 @@ class WifiCore():
         """
         while not (self.core.sta_ssid or self.core.root == self._id): # TODO maybe not Either parent claimed him or is root.
             await asyncio.sleep(DEFAULT_S)
-        self.core.DEBUG = False     # Stop Debug messages in EspCore
+        # self.core.DEBUG = False     # Stop Debug messages in EspCore
         self.sta.wlan.disconnect()  # Disconnect from any previously connected WiFi.
         if self.core.sta_ssid:
             self.sta_ssid = self.core.sta_ssid

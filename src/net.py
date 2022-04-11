@@ -70,6 +70,7 @@ class Net:
 class ESP:
     def __init__(self):
         self.esp = espnow.ESPNow()
+        self.esp.config(rxbuf=2048)
         self.esp.init()
         self.stream_reader = StreamReader(self.esp)
 

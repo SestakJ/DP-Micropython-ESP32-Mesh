@@ -161,7 +161,7 @@ class NodeFail:
 
 
 PACKETS = {
-    ESP_TYPE.ADVERTISE              : (Advertise, "!6shf"),
+    ESP_TYPE.ADVERTISE              : (Advertise, "!6sff"),
     ESP_TYPE.OBTAIN_CREDS           : (ObtainCreds, "!B6s32s"),
     ESP_TYPE.SEND_WIFI_CREDS        : (SendWifiCreds, "!6sh16s16s"),
 
