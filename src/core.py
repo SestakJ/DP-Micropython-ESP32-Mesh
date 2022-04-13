@@ -11,8 +11,8 @@ import struct
 import json
 from network import AUTH_WPA_WPA2_PSK
 from src.net import Net, ESP
-from src.espmsg import  Advertise, ObtainCreds, SendWifiCreds, RootElected, ClaimChild, ClaimChildRes, NodeFail, \
-                        pack_message, unpack_message, PACKETS, ESP_TYPE
+from src.espmsg import  Advertise, ObtainCreds, SendWifiCreds, RootElected, NodeFail, \
+                        pack_espmessage, unpack_espmessage, ESP_PACKETS, ESP_TYPE
 from src.utils import init_button, id_generator
 from src.ucrypto.hmac import HMAC, compare_digest, new
 import ucryptolib as cryptolib
@@ -81,7 +81,7 @@ class Core():
             new_creds = creds + (CREDS_LENGTH - len(creds))*b'\x00'
             creds = new_creds[:CREDS_LENGTH]
         self.creds = creds              # Is 32Bytes long for HMAC(SHA256) signing.
-        _, pattern = PACKETS[ESP_TYPE.OBTAIN_CREDS]
+        _, pattern = ESP_PACKETS[ESP_TYPE.OBTAIN_CREDS]
         self._creds_msg_size = struct.calcsize(pattern) + 1
         self.esp_pmk = self._config.get('esp_pmk').encode()
         self.esp_lmk = self._config.get('esp_lmk').encode()
@@ -120,7 +120,6 @@ class Core():
         """
         while not self.has_creds():
             await asyncio.sleep(DEFAULT_S)
-        self._loop.create_task(self.claim_children())
         self._loop.create_task(self.check_root_election())
 
     def has_creds(self):
@@ -130,7 +129,7 @@ class Core():
         """
         Create message from class object and send it through espnow.
         """
-        packed_msg = pack_message(msg) # Creates byte-like string.
+        packed_msg = pack_espmessage(msg) # Creates byte-like string.
         digest_hash = self.sign_message(packed_msg)
         signed_msg = packed_msg + digest_hash
         self.esp.send(peer, signed_msg)
@@ -155,8 +154,6 @@ class Core():
             return False
         return compare_digest(my_digest, bytes(msg_digest, 'utf-8'))
 
-
-     
     def mps_button_pressed(self, irq):
         """
         Function to measure how long is button pressed. If between MPS_THRESHOLD_MS and 2*MPS_THRESHOLD_MS, we can exchange credentials.
@@ -275,6 +272,7 @@ class Core():
                 if self._id == self.root:
                     self.in_topology = True
                     self.dprint(f"[ROOT ELECTION] finish")
+                    self._loop.create_task(self.claim_children())
                 break
             else:
                 await asyncio.sleep(DEFAULT_S)
@@ -290,13 +288,9 @@ class Core():
         return dec.decode()
     
     async def claim_children(self):
-        # In_topology setted for root node statically for demo purpouse. It will be set by root election process on root node.
-        # Or if station succefully connected to parent node, it can starts its own AP and claim children.
-        while not (self.in_topology or self.sta.isconnected()):
-            await asyncio.sleep(DEFAULT_S)
-        # self.ap_password = b'espespespespesp0'
-        print(f"CLaim children in espMSG {self.ap_essid} {self.ap_password}")
-        self.in_topology = True
+        # Claim children if I am root node or if I was added to the topology by parent_claim_received.
+        await asyncio.sleep_ms(1)
+        self.dprint(f"[Claim children] in espMSG {self.ap_essid} {self.ap_password}")
         for record in self.neighbours.values(): # TODO only for some nodes with good RSSI.
             t = time.ticks_ms()
             node_id, node_cntr, node_rssi, last_rx, last_tx = record
@@ -311,7 +305,10 @@ class Core():
             return
         self.sta_ssid = self.aes_decrypt(wifi_creds.cessid)[:wifi_creds.bessid_length]
         self.sta_password = self.aes_decrypt(wifi_creds.zpasswd)
-        print(f"[RECEIVED WIFI CREDS FROM PARENT] {self.sta_ssid} and {self.sta_password}")
+        self.dprint(f"[RECEIVED WIFI CREDS FROM PARENT] {self.sta_ssid} and {self.sta_password}")
+        self.in_topology = True
+        self._loop.create_task(self.claim_children())
+
 
     async def advertise(self):
         """
@@ -331,9 +328,6 @@ class Core():
         Extract message and it's digest and length and return all of it.
         """
         msg_magic, msg_len, msg_src = struct.unpack("!BB6s", buf[0:8]) # Always in the incoming packet.
-        # msg_magic = buf[0]
-        # msg_len = buf[1]
-        # msg_src = buf[2:8]
         msg = buf[8:(8 + msg_len - DIGEST_SIZE)]
         digest = buf[(8 + msg_len - DIGEST_SIZE) : (8 + msg_len)] # Get the digest from the message for comparison, digest is 32B.
         return msg, digest, msg_len
@@ -363,18 +357,18 @@ class Core():
     async def process_message(self, msg, digest, msg_len):
         print("process message")
         if self.verify_sign(msg, digest):
-            obj = await unpack_message(msg, self)
+            obj = await unpack_espmessage(msg, self)
             self.dprint("[On Message Verified received] obj: ", obj)
         # If in exchange mode expect creds and wrong sign because we don't have the correct creds.
         elif self.inmps and msg_len == self._creds_msg_size + DIGEST_SIZE:
             creds = digest
-            obj = await unpack_message(msg+creds, self)
+            obj = await unpack_espmessage(msg+creds, self)
             self.dprint("[On Message not Verified received] obj: ", obj)
         else:
             self.dprint("[On Message dropped]", msg, msg_len)
 
     async def get_cntr_rssi(self, router_ssid: bytes):
-        wifies = self.sta.wlan.scan() # Returns (ssid, bssid, channel, RSSI, authmode, hidden)
+        wifies = [] # self.sta.wlan.scan() # Returns (ssid, bssid, channel, RSSI, authmode, hidden), but is blocking
         rssi = cntr = 0
         for record in wifies:
             if record[0] == router_ssid:
@@ -384,11 +378,12 @@ class Core():
                 cntr = cntr + eqaution
         return cntr, rssi
 
+    # TODO in wlan.scan() try uasyncio.core._io_queue.queue_read + return super().recv() from https://github.com/glenn20/micropython/blob/espnow-g20/ports/esp32/modules/aioespnow.py    
+
     # TODO Root node after 2,5*ADV time no new node appeared start election process. Only the root node will send claim.
     # Centrality value of nodes will be computed like E(1/abs(rssi))^1/2
 
     # TODO Root node confirmation - if multiple roots, select the one with lowes MAC for example.
-    
 def main():
     c = Core()
 

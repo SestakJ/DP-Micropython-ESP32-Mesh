@@ -27,10 +27,7 @@ class ESP_TYPE:
     ADVERTISE=1
     OBTAIN_CREDS=7
     SEND_WIFI_CREDS=5
-
     ROOT_ELECTED=2
-    CLAIM_CHILD_REQUEST=3
-    CLAIM_CHILD_RESPONSE=4
     NODE_FAIL=6
 
 class Advertise:
@@ -123,32 +120,11 @@ class SendWifiCreds:
         core.parent_claim_received(self)
 
 
-
 class RootElected(Advertise):
     type = ESP_TYPE.ROOT_ELECTED
 
     async def process(self):
         await asyncio.sleep(0.30)
-
-
-class ClaimChild:
-    type = ESP_TYPE.CLAIM_CHILD_REQUEST
-
-    def __init__(self, claimer, vis, claimed):
-        self.claimer = claimer
-        self.vis = vis
-        self.claimed = claimed
-    
-    async def process(self):
-        await asyncio.sleep(0.40)
-
-
-class ClaimChildRes(ClaimChild):
-    type = ESP_TYPE.CLAIM_CHILD_RESPONSE
-
-    async def process(self):
-        await asyncio.sleep(0.50)
-
 
 class NodeFail:
     type = ESP_TYPE.NODE_FAIL
@@ -160,21 +136,17 @@ class NodeFail:
         await asyncio.sleep(0.55)
 
 
-PACKETS = {
+ESP_PACKETS = {
     ESP_TYPE.ADVERTISE              : (Advertise, "!6sff"),
     ESP_TYPE.OBTAIN_CREDS           : (ObtainCreds, "!B6s32s"),
     ESP_TYPE.SEND_WIFI_CREDS        : (SendWifiCreds, "!6sh16s16s"),
-
     ESP_TYPE.ROOT_ELECTED           : (RootElected, "!6shf"),
-    ESP_TYPE.CLAIM_CHILD_REQUEST    : (ClaimChild, "!6sf6s"),
-    ESP_TYPE.CLAIM_CHILD_RESPONSE   : (ClaimChildRes, "!6sf6s"),
     ESP_TYPE.NODE_FAIL              : (NodeFail, "!6s")
 }
 
-
 # Pack msg into bytes.
-def pack_message(obj):
-    klass, pattern = PACKETS[obj.type]
+def pack_espmessage(obj):
+    klass, pattern = ESP_PACKETS[obj.type]
     # print(*obj.__dict__.values())
     # dprint( *vars(obj).values())
     # msg = struct.pack('B', obj.type) + struct.pack(pattern, *vars(obj).values())
@@ -184,18 +156,86 @@ def pack_message(obj):
 
 
 # On received message unpack from bytes.
-async def unpack_message(msg, core : "core.Core"):
+async def unpack_espmessage(msg, core : "core.Core"):
     msg_type = msg[0]
-    klass, pattern = PACKETS[msg_type]
+    klass, pattern = ESP_PACKETS[msg_type]
     obj = klass(*struct.unpack(pattern, msg[1:]))
     dprint("unpack_message: ", pattern, obj)
     await obj.process(core)
     return obj
 
 
+### WIFI messages
+# In JSON with structure:
+    #{'src':'\xxx',
+    # 'dst' : '\xxx',
+    # 'flag': Num,
+    # 'msg' : Payload
+    # }
+
+class WIFIMSG:
+    TOPOLOGY_EXCHANGE=1
+    CLAIM_CHILD_REQUEST=2
+    CLAIM_CHILD_RESPONSE=3
+
+class WifiMSGBase():
+    def __init__(self, src, dst):
+        self.packet = {}
+        self.packet["src"] = src
+        self.packet["dst"] = dst
+
+class TopologyExchange(WifiMSGBase):
+    type = WIFIMSG.TOPOLOGY_EXCHANGE
+
+    def __init__(self, src,dst,flag, topology):
+        super().__init__(src, dst)
+        self.packet["flag"] = flag
+        self.packet["msg"] = topology
+
+    async def process(self, core : "wificore.WifiCore"):
+        await asyncio.sleep(0.2)
+
+# class ClaimChild:
+#     type = ESP_TYPE.CLAIM_CHILD_REQUEST
+
+#     def __init__(self, claimer, vis, claimed):
+#         self.claimer = claimer
+#         self.vis = vis
+#         self.claimed = claimed
+    
+#     async def process(self):
+#         await asyncio.sleep(0.40)
+
+
+# class ClaimChildRes(ClaimChild):
+#     type = ESP_TYPE.CLAIM_CHILD_RESPONSE
+
+#     async def process(self):
+#         await asyncio.sleep(0.50)
+
+
+
+WIFI_PACKETS = {
+    WIFIMSG.TOPOLOGY_EXCHANGE : TopologyExchange
+}
+
 def print_mac(mac):
     dprint(hexlify(mac,':').decode())
 
+
+#Prepare WiFi message to be sent
+def pack_wifimessage(obj):
+    # obj.packet["src"] = hexlify(obj.packet["src"], ':').replace(b':', b'').decode()
+    # obj.packet["dst"] = hexlify(obj.packet["dst"], ':').replace(b':', b'').decode()
+    j = json.dumps(obj.packet)
+    return j
+
+async def unpack_wifimessage(msg, core : "wificore.WifiCore"):
+    d = json.loads(msg)
+    klass = WIFI_PACKETS[d["flag"]]
+    obj = klass(d["src"], d["dst"], d["flag"], d["msg"])
+    await obj.process(core)
+    return obj
 
 async def main():
 
@@ -258,14 +298,14 @@ async def main():
 
     # tmpmsg = await unpack_message(msg, "hej")
 
-    essid = b'ESP' + hexlify(b'<q\xbf\xe4\x8d\xa1')
-    passwd = b'GpWVdRn3uMNPf1Ep' #id_generator()
-    claim = SendWifiCreds(b'<q\xbf\xe4\x8d\xa1', len(essid), essid, passwd)
-    print(claim.__dict__.values())
-    msg = pack_message(claim)
-    print(msg)
+    # essid = b'ESP' + hexlify(b'<q\xbf\xe4\x8d\xa1')
+    # passwd = b'GpWVdRn3uMNPf1Ep' #id_generator()
+    # claim = SendWifiCreds(b'<q\xbf\xe4\x8d\xa1', len(essid), essid, passwd)
+    # print(claim.__dict__.values())
+    # msg = pack_message(claim)
+    # print(msg)
 
-    ret_msg = await unpack_message(msg, "hello")
+    # ret_msg = await unpack_message(msg, "hello")
 
     # root = Root_elected(id, cntr, rssi)
     # dprint(root)
@@ -288,6 +328,30 @@ async def main():
     # utmp = struct.unpack(pattern, tmp)
 
     # dprint(utmp)
+    tmp ={"topology": {"node" : "3c:71:bb:e4:8b:89",
+                      "child" : 
+                      [
+                         {"node" : "3c:71:bb:e4:8b:a1",
+                          "child": 
+                          [
+                              {
+                                  "node": "3c:71:bb:e4:8b:b9",
+                                  "child": {}  
+                              }
+                          ]
+                          }
+                      ]
+                      }
+    }
+    dst = hexlify(b'<q\xbf\xe4\x8b\x88', ':').replace(b':', b'').decode()
+    new_dst = unhexlify(dst)
+    print(new_dst)
+    topo = TopologyExchange(dst, dst, 1, tmp)
+    msg = pack_wifimessage(topo)
+    print(type(msg), msg)
+
+    obj = await unpack_wifimessage(msg, "core")
+    print(obj.__dict__)
 
 if __name__=="__main__":
     asyncio.run(main())

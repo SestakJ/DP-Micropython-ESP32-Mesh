@@ -6,15 +6,13 @@
 
 import uasyncio as asyncio
 import machine
-import time
-import struct
 import json
+from ubinascii import hexlify, unhexlify
 from network import AUTH_WPA_WPA2_PSK
 from src.net import Net, ESP
-from src.espmsg import  Advertise, ObtainCreds, RootElected, ClaimChild, ClaimChildRes, NodeFail, \
-                        pack_message, unpack_message, PACKETS, ESP_TYPE
-import sys
+from src.espmsg import  WIFI_PACKETS, TopologyExchange, pack_wifimessage, unpack_wifimessage
 from src.core import Core
+from src.tree import Tree, TreeNode, treeify
 
 # User defined constants.
 CONFIG_FILE = 'config.json'
@@ -25,6 +23,11 @@ DIGEST_SIZE = const(32)     # Size of HMAC(SHA256) signing code. Equals to Size 
 CREDS_LENGTH = const(32)
 SERVER_PORT = const(1234)
 
+def mac_to_str(mac : bytes):
+    return hexlify(mac, ':').replace(b':', b'').decode()
+
+def str_to_mac(s : str):
+    return unhexlify(dst)
 
 class WifiCore():
     DEBUG = True
@@ -42,11 +45,12 @@ class WifiCore():
         self.sta_ssid = self.sta_password = None
         self.ap_authmode = AUTH_WPA_WPA2_PSK   # WPA/WPA2-PSK mode.
         # Node definitions
-        self._id = self.ap.wlan.config('mac')
+        self._id = mac_to_str(self.ap.wlan.config('mac'))
         # User defined from config.json.
         self._loop = self.core._loop
         self.children_writers = {}
         self.parent = self.parent_reader = self.parent_writer = None
+        self.json_topology = self._config.get('topology', None)
 
     def dprint(self, *args):
         if self.DEBUG:
@@ -81,7 +85,7 @@ class WifiCore():
         Wait for the right signal. Assign WiFi credentials and connect to it, open connection with socket. 
         Or node is to be the root so return.
         """
-        while not (self.core.sta_ssid or self.core.root == self._id): # TODO maybe not Either parent claimed him or is root.
+        while not (self.core.sta_ssid or mac_to_str(self.core.root) == self._id): # TODO maybe not Either parent claimed him or is root.
             await asyncio.sleep(DEFAULT_S)
         # self.core.DEBUG = False     # Stop Debug messages in EspCore
         self.sta.wlan.disconnect()  # Disconnect from any previously connected WiFi.
@@ -99,9 +103,10 @@ class WifiCore():
         self._loop.create_task(self.receive_from_parent())
         
     async def send_to_parent(self):
+        msg = TopologyExchange(self._id, "ffffffffffff", 1, self.json_topology)
         while True:
             self.dprint("[SEND] to parent")
-            await self.send_msg(self.parent, ["Hello to parent", 196])
+            await self.send_msg(self.parent, msg)
             await asyncio.sleep(15)
             
     async def receive_from_parent(self):
@@ -136,7 +141,8 @@ class WifiCore():
             self.dprint("[Start Server] error: ", e)
             raise e
 
-    async def sending_to_children(self, msg = ["hello to child", 195]):  
+    async def sending_to_children(self, msg):  
+        msg = TopologyExchange(self._id, "ffffffffffff", 1, self.json_topology)
         while True:
             self._loop.create_task(self.send_to_children_once(msg))
             await asyncio.sleep(DEFAULT_S)
@@ -185,7 +191,7 @@ class WifiCore():
             return
         try:
             self.dprint("[SEND] to :", destination, writer, " message: ", message)
-            writer.write('{}\n'.format(json.dumps(message)))
+            writer.write('{}\n'.format(pack_wifimessage(message)))
             await writer.drain()
             print("[SEND] drained and done")
         except Exception as e:

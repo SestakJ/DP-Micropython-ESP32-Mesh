@@ -105,37 +105,20 @@ def treeify(data) -> dict:
        return data
 
 def main():
-    tmp ={
-    "topology": {"node" : "root",
-                    "child" : 
-                    [
-                        {
-                        "node" : "childA",
-                        "child": []
-                        }
-                        ,{"node" : "childB",
-                        "child": 
-                        [
-                            {
-                                "node": "childC",
-                                "child": {}  
-                            },
-                            {"node" : "childD",
-                            "child": [{
-                                    "node": "childE",
-                                    "child": []
-                                    },
-                                    {
-                                    "node": "childF",
-                                    "child": {}  
-                                    }
-                            ]
-                            }
-                        ]
-                        }
-                    ]
-                    }      
-    }
+    tmp = {"node" : "3c:71:bb:e4:8b:89",
+                      "child" : 
+                      [
+                         {"node" : "3c:71:bb:e4:8b:a1",
+                          "child": 
+                          [
+                              {
+                                  "node": "3c:71:bb:e4:8b:b9",
+                                  "child": {}  
+                              }
+                          ]
+                          }
+                      ]
+                      }
 
     top = treeify(tmp)
     print(top)
@@ -147,8 +130,8 @@ def main():
     childB = tree.search("childB")
     print("FOUND:", childB)
 
-    children = childB.get_children()
-    print(children)
+    # children = childB.get_children()
+    # pint(children)
     # de = tree.del_node("childE")
     # print(tree)
 
