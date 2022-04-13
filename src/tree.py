@@ -72,37 +72,30 @@ class Tree:
         parent.del_child(failed_node)
 
 
-def create_tree(dic, tree, node):
-    """
-    Creates a tree from nested dict.
-    """
-    if not tree:
-        tree = Tree()
-    n = 0
-    for k, v in dic.items():
+def get_all_nodes(dict_var):
+    for k, v in dict_var.items():
         if k == "node":
-            if node:
-                n = TreeNode(v, node)
-                node.add_child(n)
-            else :
+            yield v
+        elif isinstance(v, dict):
+            for id_val in get_all_nodes(v):
+                yield id_val
+        elif isinstance(v, list):
+            for item in v:
+                yield from get_all_nodes(item)
+
+def json_to_tree(dict_var, tree, node):
+    n = None
+    for k, v in dict_var.items():
+        if k == "node":
+            if not node:
                 n = TreeNode(v, None)
                 tree.root = n
-        elif isinstance(v, dict) and n:
-            n = create_tree(v, tree, n)
-        else:
-            n = create_tree(v, tree, node)
-    return n
-
-def treeify(data) -> dict:
-    """
-    Make nested dict from JSON data. Viz. https://stackoverflow.com/questions/55926688/python-create-tree-from-a-json-file
-    """
-    if isinstance(data, dict):  # already have keys, just recurse
-       return {key: treeify(children) for key, children in data.items()}
-    elif isinstance(data, list):  # make keys from indices
-       return {idx: treeify(children) for idx, children in enumerate(data, start=1)}
-    else:  # leave node, no recursion
-       return data
+            else:
+                n = TreeNode(v, node)
+                node.add_child(n)
+        elif isinstance(v, list):
+            for item in v:
+                json_to_tree(item, tree, n)
 
 def main():
     tmp = {"node" : "3c:71:bb:e4:8b:89",
@@ -113,47 +106,19 @@ def main():
                           [
                               {
                                   "node": "3c:71:bb:e4:8b:b9",
-                                  "child": {}  
+                                  "child": []  
                               }
                           ]
                           }
                       ]
-                      }
-
-    top = treeify(tmp)
-    print(top)
-
-    tree = Tree()
-    create_tree(top, tree, None)
-    print("TREE: ", tree)
-
-    childB = tree.search("childB")
-    print("FOUND:", childB)
-
-    # children = childB.get_children()
-    # pint(children)
-    # de = tree.del_node("childE")
-    # print(tree)
-
-    print(tree.pack())
-    # x = json.dumps(tree.__repr__())
-    # print("JSON:" , x)
-
-    def id_generator(dict_var):
-        for k, v in dict_var.items():
-            if k == "node":
-                yield v
-            elif isinstance(v, dict):
-                for id_val in id_generator(v):
-                    yield id_val
-            elif isinstance(v, list):
-                for item in v:
-                    yield from id_generator(v)
-
-    all_nodes = id_generator(top)
+            }
+    
+    all_nodes = get_all_nodes(tmp)
     for i in all_nodes:
         print(i)
-
+    tree = Tree()
+    all_nodes = json_to_tree(tmp, tree, None)
+    print(tree)
 if __name__ == "__main__":
     main()
 
