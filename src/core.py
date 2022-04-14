@@ -360,7 +360,6 @@ class Core():
                     break
 
     async def process_message(self, msg, digest, msg_len):
-        print("process message")
         if self.verify_sign(msg, digest):
             obj = await unpack_espmessage(msg, self)
             self.dprint("[On Message Verified received] obj: ", obj)
@@ -387,8 +386,10 @@ class Core():
 
     def wlan_scan(self, wlans):
         wlans.clear() # Clear the list of old records.
-        wlans.extend(self.sta.wlan.scan())
-        print("Wlans in thread ",wlans)
+        try:
+            wlans.extend(self.sta.wlan.scan())
+        except RuntimeError as e: # Sometimes can throw Wifi Unknown Error 0x0102 == no AP found.
+            wlans.clear()
         self._wlan_scan_lock.release()
 
     # TODO in wlan.scan() try uasyncio.core._io_queue.queue_read + return super().recv() from https://github.com/glenn20/micropython/blob/espnow-g20/ports/esp32/modules/aioespnow.py    
