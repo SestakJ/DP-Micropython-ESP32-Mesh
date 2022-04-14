@@ -17,6 +17,7 @@ from src.utils import init_button, id_generator
 from src.ucrypto.hmac import HMAC, compare_digest, new
 import ucryptolib as cryptolib
 import math
+import _thread
 
 # User defined constants.
 CONFIG_FILE = 'config.json'
@@ -54,8 +55,6 @@ class Core():
         self.creds  = b'\x00'
         # Node definitions.
         self._id = self.ap.wlan.config('mac')
-        self.cntr = 0
-        self.rssi = 0.0
         self.neighbours = {}
         # User defined from config.json.
         self.get_config()
@@ -65,7 +64,8 @@ class Core():
         self.button = init_button(RIGHT_BUTTON, self.mps_button_pressed)
         self.mps_start = self.mps_end = 0
         self._loop = asyncio.get_event_loop()
-        self._lock = asyncio.Lock()
+        self._mps_lock = asyncio.Lock() # Asyncio lock for event loop and tasks with use of await.
+        self._wlan_scan_lock = _thread.allocate_lock() # Threading lock similar to the one in C.
         # Flags for root election and topology addition.
         self.neigh_last_changed = 0
         self.root = b''
@@ -186,7 +186,7 @@ class Core():
         Allow only one task to be run at the time using Lock() even if button was pressed multiple times.
         """
         try:
-            self._loop.run_until_complete(self._lock.acquire())
+            self._loop.run_until_complete(self._mps_lock.acquire())
             await asyncio.wait_for(self.obtain_creds(), MPS_TIMER_S)
         except asyncio.TimeoutError:
             print('ERROR : MPS timeout!')
@@ -201,7 +201,7 @@ class Core():
             send_msg = self.send_creds(0, self.creds, peer=self.BROADCAST)
             await asyncio.sleep(DEFAULT_S)
         self.dprint("\t[MPS credentials obtained] ")
-        self._lock.release()
+        self._mps_lock.release()
 
     def send_creds(self, flag, creds, peer=BROADCAST):
         """
@@ -240,6 +240,7 @@ class Core():
         Task will each second check old records and wipe them out.
         It will also advertise other nodes every 13s if they are active.
         """
+        dprint = self.dprint
         while True:
             for record in self.neighbours.values():
                 t = time.ticks_ms()
@@ -254,7 +255,7 @@ class Core():
                     last_tx = t
                     signed_msg = self.send_msg(self.BROADCAST, adv)
                     self.save_neighbour([node_id, node_cntr, node_rssi, last_rx, last_tx])
-                    self.dprint(self.neighbours)
+                    dprint(self.neighbours)
                     self.dprint("[Advertise every 13s database]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
             await asyncio.sleep(1)
 
@@ -312,16 +313,20 @@ class Core():
 
     async def advertise(self):
         """
-        Actualize node's own values in database and send to veryone in the mesh.
+        Actualize node's own values in database and send to everyone in the mesh.
         """
-        self.save_neighbour([self._id, self.cntr, self.rssi, 0, 0])
+        cntr = rssi = 0.0
+        self.save_neighbour([self._id, cntr, rssi, 0, 0])
+        wifies = []
         while True:
-            self.cntr, self.rssi = await self.get_cntr_rssi(b'')
-            self.save_neighbour([self._id, self.cntr, self.rssi, 0, 0])
-            adv = Advertise(self._id, self.cntr, self.rssi)
+            self._wlan_scan_lock.acquire() # Lock is for waiting for results in second thread of scanning.
+            cntr, rssi = await self.get_cntr_rssi(wifies, b'FourMusketers_2.4GHz')
+            self.save_neighbour([self._id, cntr, rssi, 0, 0])
+            adv = Advertise(self._id, cntr, rssi)
             signed_msg = self.send_msg(self.BROADCAST, adv)
             self.dprint("[Advertise send]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
-            await asyncio.sleep(ADVERTISE_S)
+            _thread.start_new_thread(self.wlan_scan, [wifies]) # Scan wlans in new thread and release lock.
+            await asyncio.sleep(ADVERTISE_S) # Use time of this sleep to switch to other thread. (Should be enough, lock is for sure.)
 
     def get_message_with_digest(self, buf):
         """
@@ -367,16 +372,24 @@ class Core():
         else:
             self.dprint("[On Message dropped]", msg, msg_len)
 
-    async def get_cntr_rssi(self, router_ssid: bytes):
-        wifies = [] # self.sta.wlan.scan() # Returns (ssid, bssid, channel, RSSI, authmode, hidden), but is blocking
-        rssi = cntr = 0
+    async def get_cntr_rssi(self, wifies, router_ssid: bytes):
+        rssi = cntr = 0.0
         for record in wifies:
             if record[0] == router_ssid:
                 rssi = record[3]
-            if record[1] in self.neighbours:
-                eqaution = 1/math.sqrt(abs(record[3]))
-                cntr = cntr + eqaution
+            elif record[1] in self.neighbours:
+                if record[3] == 0: # Division by zero error.
+                    cntr += 1
+                else:
+                    eqaution = 1/math.sqrt(abs(record[3]))
+                    cntr = cntr + eqaution
         return cntr, rssi
+
+    def wlan_scan(self, wlans):
+        wlans.clear() # Clear the list of old records.
+        wlans.extend(self.sta.wlan.scan())
+        print("Wlans in thread ",wlans)
+        self._wlan_scan_lock.release()
 
     # TODO in wlan.scan() try uasyncio.core._io_queue.queue_read + return super().recv() from https://github.com/glenn20/micropython/blob/espnow-g20/ports/esp32/modules/aioespnow.py    
 
