@@ -11,11 +11,13 @@ import struct
 import json
 from network import AUTH_WPA_WPA2_PSK
 from src.net import Net, ESP
-from src.espmsg import  Advertise, ObtainCreds, SendWifiCreds, RootElected, ClaimChild, ClaimChildRes, NodeFail, \
-                        pack_message, unpack_message, PACKETS, ESP_TYPE
+from src.espmsg import  Advertise, ObtainCreds, SendWifiCreds, RootElected, NodeFail, \
+                        pack_espmessage, unpack_espmessage, ESP_PACKETS, ESP_TYPE
 from src.utils import init_button, id_generator
 from src.ucrypto.hmac import HMAC, compare_digest, new
 import ucryptolib as cryptolib
+import math
+import _thread
 
 # User defined constants.
 CONFIG_FILE = 'config.json'
@@ -53,8 +55,6 @@ class Core():
         self.creds  = b'\x00'
         # Node definitions.
         self._id = self.ap.wlan.config('mac')
-        self.cntr = 0
-        self.rssi = 0.0
         self.neighbours = {}
         # User defined from config.json.
         self.get_config()
@@ -64,7 +64,8 @@ class Core():
         self.button = init_button(RIGHT_BUTTON, self.mps_button_pressed)
         self.mps_start = self.mps_end = 0
         self._loop = asyncio.get_event_loop()
-        self._lock = asyncio.Lock()
+        self._mps_lock = asyncio.Lock() # Asyncio lock for event loop and tasks with use of await.
+        self._wlan_scan_lock = _thread.allocate_lock() # Threading lock similar to the one in C.
         # Flags for root election and topology addition.
         self.neigh_last_changed = 0
         self.root = b''
@@ -80,7 +81,7 @@ class Core():
             new_creds = creds + (CREDS_LENGTH - len(creds))*b'\x00'
             creds = new_creds[:CREDS_LENGTH]
         self.creds = creds              # Is 32Bytes long for HMAC(SHA256) signing.
-        _, pattern = PACKETS[ESP_TYPE.OBTAIN_CREDS]
+        _, pattern = ESP_PACKETS[ESP_TYPE.OBTAIN_CREDS]
         self._creds_msg_size = struct.calcsize(pattern) + 1
         self.esp_pmk = self._config.get('esp_pmk').encode()
         self.esp_lmk = self._config.get('esp_lmk').encode()
@@ -119,7 +120,6 @@ class Core():
         """
         while not self.has_creds():
             await asyncio.sleep(DEFAULT_S)
-        self._loop.create_task(self.claim_children())
         self._loop.create_task(self.check_root_election())
 
     def has_creds(self):
@@ -129,7 +129,7 @@ class Core():
         """
         Create message from class object and send it through espnow.
         """
-        packed_msg = pack_message(msg) # Creates byte-like string.
+        packed_msg = pack_espmessage(msg) # Creates byte-like string.
         digest_hash = self.sign_message(packed_msg)
         signed_msg = packed_msg + digest_hash
         self.esp.send(peer, signed_msg)
@@ -154,8 +154,6 @@ class Core():
             return False
         return compare_digest(my_digest, bytes(msg_digest, 'utf-8'))
 
-
-     
     def mps_button_pressed(self, irq):
         """
         Function to measure how long is button pressed. If between MPS_THRESHOLD_MS and 2*MPS_THRESHOLD_MS, we can exchange credentials.
@@ -188,7 +186,7 @@ class Core():
         Allow only one task to be run at the time using Lock() even if button was pressed multiple times.
         """
         try:
-            self._loop.run_until_complete(self._lock.acquire())
+            self._loop.run_until_complete(self._mps_lock.acquire())
             await asyncio.wait_for(self.obtain_creds(), MPS_TIMER_S)
         except asyncio.TimeoutError:
             print('ERROR : MPS timeout!')
@@ -203,7 +201,7 @@ class Core():
             send_msg = self.send_creds(0, self.creds, peer=self.BROADCAST)
             await asyncio.sleep(DEFAULT_S)
         self.dprint("\t[MPS credentials obtained] ")
-        self._lock.release()
+        self._mps_lock.release()
 
     def send_creds(self, flag, creds, peer=BROADCAST):
         """
@@ -242,6 +240,7 @@ class Core():
         Task will each second check old records and wipe them out.
         It will also advertise other nodes every 13s if they are active.
         """
+        dprint = self.dprint
         while True:
             for record in self.neighbours.values():
                 t = time.ticks_ms()
@@ -256,7 +255,7 @@ class Core():
                     last_tx = t
                     signed_msg = self.send_msg(self.BROADCAST, adv)
                     self.save_neighbour([node_id, node_cntr, node_rssi, last_rx, last_tx])
-                    self.dprint(self.neighbours)
+                    dprint(self.neighbours)
                     self.dprint("[Advertise every 13s database]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
             await asyncio.sleep(1)
 
@@ -274,6 +273,7 @@ class Core():
                 if self._id == self.root:
                     self.in_topology = True
                     self.dprint(f"[ROOT ELECTION] finish")
+                    self._loop.create_task(self.claim_children())
                 break
             else:
                 await asyncio.sleep(DEFAULT_S)
@@ -289,13 +289,9 @@ class Core():
         return dec.decode()
     
     async def claim_children(self):
-        # In_topology setted for root node statically for demo purpouse. It will be set by root election process on root node.
-        # Or if station succefully connected to parent node, it can starts its own AP and claim children.
-        while not (self.in_topology or self.sta.isconnected()):
-            await asyncio.sleep(DEFAULT_S)
-        # self.ap_password = b'espespespespesp0'
-        print(f"CLaim children in espMSG {self.ap_essid} {self.ap_password}")
-        self.in_topology = True
+        # Claim children if I am root node or if I was added to the topology by parent_claim_received.
+        await asyncio.sleep_ms(1)
+        self.dprint(f"[Claim children] in espMSG {self.ap_essid} {self.ap_password}")
         for record in self.neighbours.values(): # TODO only for some nodes with good RSSI.
             t = time.ticks_ms()
             node_id, node_cntr, node_rssi, last_rx, last_tx = record
@@ -310,30 +306,33 @@ class Core():
             return
         self.sta_ssid = self.aes_decrypt(wifi_creds.cessid)[:wifi_creds.bessid_length]
         self.sta_password = self.aes_decrypt(wifi_creds.zpasswd)
-        print(f"[RECEIVED WIFI CREDS FROM PARENT] {self.sta_ssid} and {self.sta_password}")
+        self.dprint(f"[RECEIVED WIFI CREDS FROM PARENT] {self.sta_ssid} and {self.sta_password}")
+        self.in_topology = True
+        self._loop.create_task(self.claim_children())
+
 
     async def advertise(self):
         """
-        Actualize node's own values in database and send to veryone in the mesh.
+        Actualize node's own values in database and send to everyone in the mesh.
         """
-        self.save_neighbour([self._id, self.cntr, self.rssi, 0, 0])
+        cntr = rssi = 0.0
+        self.save_neighbour([self._id, cntr, rssi, 0, 0])
+        wifies = []
         while True:
-            self.cntr = 0
-            self.rssi = 0
-            self.save_neighbour([self._id, self.cntr, self.rssi, 0, 0])
-            adv = Advertise(self._id, self.cntr, self.rssi)
+            self._wlan_scan_lock.acquire() # Lock is for waiting for results in second thread of scanning.
+            cntr, rssi = await self.get_cntr_rssi(wifies, b'FourMusketers_2.4GHz')
+            self.save_neighbour([self._id, cntr, rssi, 0, 0])
+            adv = Advertise(self._id, cntr, rssi)
             signed_msg = self.send_msg(self.BROADCAST, adv)
             self.dprint("[Advertise send]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
-            await asyncio.sleep(ADVERTISE_S)
+            _thread.start_new_thread(self.wlan_scan, [wifies]) # Scan wlans in new thread and release lock.
+            await asyncio.sleep(ADVERTISE_S) # Use time of this sleep to switch to other thread. (Should be enough, lock is for sure.)
 
     def get_message_with_digest(self, buf):
         """
         Extract message and it's digest and length and return all of it.
         """
         msg_magic, msg_len, msg_src = struct.unpack("!BB6s", buf[0:8]) # Always in the incoming packet.
-        # msg_magic = buf[0]
-        # msg_len = buf[1]
-        # msg_src = buf[2:8]
         msg = buf[8:(8 + msg_len - DIGEST_SIZE)]
         digest = buf[(8 + msg_len - DIGEST_SIZE) : (8 + msg_len)] # Get the digest from the message for comparison, digest is 32B.
         return msg, digest, msg_len
@@ -349,16 +348,7 @@ class Core():
             while True:
                 buf = buf[next_msg:]
                 msg, digest, msg_len = self.get_message_with_digest(buf)
-                if self.verify_sign(msg, digest):
-                    obj = await unpack_message(msg, self)
-                    self.dprint("[On Message Verified received] obj: ", obj)
-                # If in exchange mode expect creds and wrong sign because we don't have the correct creds.
-                elif self.inmps and msg_len == self._creds_msg_size + DIGEST_SIZE:
-                    creds = digest
-                    obj = await unpack_message(msg+creds, self)
-                    self.dprint("[On Message not Verified received] obj: ", obj)
-                else:
-                    self.dprint("[On Message dropped]", msg, msg_len)
+                self._loop.create_task(self.process_message(msg, digest, msg_len))
 
                 # TODO read only first two bytes and then read leng of the packet.
                 # Cannot do because StreamReader.read(), read1() don't work, they read as much as can.
@@ -369,11 +359,45 @@ class Core():
                     next_msg = 0
                     break
 
+    async def process_message(self, msg, digest, msg_len):
+        if self.verify_sign(msg, digest):
+            obj = await unpack_espmessage(msg, self)
+            self.dprint("[On Message Verified received] obj: ", obj)
+        # If in exchange mode expect creds and wrong sign because we don't have the correct creds.
+        elif self.inmps and msg_len == self._creds_msg_size + DIGEST_SIZE:
+            creds = digest
+            obj = await unpack_espmessage(msg+creds, self)
+            self.dprint("[On Message not Verified received] obj: ", obj)
+        else:
+            self.dprint("[On Message dropped]", msg, msg_len)
+
+    async def get_cntr_rssi(self, wifies, router_ssid: bytes):
+        rssi = cntr = 0.0
+        for record in wifies:
+            if record[0] == router_ssid:
+                rssi = record[3]
+            elif record[1] in self.neighbours:
+                if record[3] == 0: # Division by zero error.
+                    cntr += 1
+                else:
+                    eqaution = 1/math.sqrt(abs(record[3]))
+                    cntr = cntr + eqaution
+        return cntr, rssi
+
+    def wlan_scan(self, wlans):
+        wlans.clear() # Clear the list of old records.
+        try:
+            wlans.extend(self.sta.wlan.scan())
+        except RuntimeError as e: # Sometimes can throw Wifi Unknown Error 0x0102 == no AP found.
+            wlans.clear()
+        self._wlan_scan_lock.release()
+
+    # TODO in wlan.scan() try uasyncio.core._io_queue.queue_read + return super().recv() from https://github.com/glenn20/micropython/blob/espnow-g20/ports/esp32/modules/aioespnow.py    
+
     # TODO Root node after 2,5*ADV time no new node appeared start election process. Only the root node will send claim.
     # Centrality value of nodes will be computed like E(1/abs(rssi))^1/2
 
     # TODO Root node confirmation - if multiple roots, select the one with lowes MAC for example.
-    
 def main():
     c = Core()
 
