@@ -10,15 +10,16 @@ import json
 from ubinascii import hexlify, unhexlify
 from network import AUTH_WPA_WPA2_PSK
 from src.net import Net, ESP
-from src.espmsg import  WIFI_PACKETS, TopologyExchange, pack_wifimessage, unpack_wifimessage
+from src.espmsg import  WIFI_PACKETS, TopologyPropagate, TopologyChanged, pack_wifimessage, unpack_wifimessage
 from src.core import Core
-from src.tree import Tree, TreeNode, treeify
+from src.tree import Tree, TreeNode, json_to_tree, get_all_nodes
 
 # User defined constants.
 CONFIG_FILE = 'config.json'
 
 # Constants
 DEFAULT_S = const(5)
+BEACON_S = const(15)
 DIGEST_SIZE = const(32)     # Size of HMAC(SHA256) signing code. Equals to Size of Creds for HMAC(SHA256).
 CREDS_LENGTH = const(32)
 SERVER_PORT = const(1234)
@@ -51,7 +52,9 @@ class WifiCore():
         self.children_writers = {} # {mac: (writer, (ip, port))}
         self.parent = self.parent_reader = self.parent_writer = None
         self.json_topology = self._config.get('topology', None)
-
+        self.tree_topology = None
+        self.my_treenode = None
+        self.topology_lock  = asyncio.Lock()
     def dprint(self, *args):
         if self.DEBUG:
             print(*args)
@@ -93,27 +96,27 @@ class WifiCore():
             self.sta_password = self.core.sta_password
             await self.sta.do_connect(self.sta_ssid, self.sta_password)
             self.dprint("[Connect to parent WiFi] Done")
-        else:
-            # TODO here update topology of me becouase i am root node
+        else: # Node is root node. Create Topology with myself on top.
+            tree = Tree()
+            tree.root = TreeNode(self._id, None)
+            self.tree_topology = tree
             return
         self.parent_reader, self.parent_writer = await asyncio.open_connection(self.sta.ifconfig()[2], SERVER_PORT)
         self.dprint("[Open connection to parent] Done")
-        self._loop.create_task(self.send_to_parent())
+        self._loop.create_task(self.send_beacon_to_parent())
         self._loop.create_task(self.receive_from_parent())
         
-    async def send_to_parent(self):
-        msg = TopologyExchange(self._id, "ffffffffffff", 1, self.json_topology)
+    async def send_beacon_to_parent(self):
+        msg = TopologyPropagate(self._id, "ffffffffffff", None) # Send first message for parent to save my MAC addr.
         while True:
             self.dprint("[SEND] to parent")
+            msg.packet["msg"] = self.tree_topology.pack() if self.tree_topology else None
             await self.send_msg(self.parent , self.parent_writer, msg)
-            await asyncio.sleep(15)
+            await asyncio.sleep(BEACON_S)
             
     async def receive_from_parent(self):
         self.parent = await self.register_mac(self.parent_reader) # Register peer with mac address
         self._loop.create_task(self.receive(self.parent_reader))
-        #     #TODO create task for processing the message.
-        #     self._loop.create_task(self.send_to_children_once(res)) # Relay messages to children.
-        #     await asyncio.sleep(2)
             
     async def start_parenting(self):
         """
@@ -126,20 +129,21 @@ class WifiCore():
         try:
             self._loop.create_task(asyncio.start_server(self.receive_from_child, '0.0.0.0', SERVER_PORT))
             self._loop.create_task(self.sending_to_children(msg=["hello to child From ROOTOOOOT", 195]))
+            self._loop.create_task(self.core.claim_children())
         except Exception as e:
             self.dprint("[Start Server] error: ", e)
             raise e
 
-    async def sending_to_children(self, msg):  
-        msg = TopologyExchange(self._id, "ffffffffffff", 1, self.json_topology)
+    async def sending_to_children(self, msg):
+        msg = TopologyPropagate(self._id, "ffffffffffff", None)
         while True:
+            msg.packet["msg"] = self.tree_topology.pack() if self.tree_topology else None
             self._loop.create_task(self.send_to_children_once(msg))
             await asyncio.sleep(DEFAULT_S)
 
     async def send_to_children_once(self, msg):
         # l = self.ap.wlan.status('stations') # Get list of tuples of MAC of connected devices.
         # children = [mac[0] for mac in l]
-        # TODO Must be SRC MAC and DST MAC in JSON messages, then I can match the mac addresses to the right IP addresses.
         print("[SEND] to children")
         for destination, writers in self.children_writers.items(): # But this is tuple(IP, port)
             # if destination[0] not in children: # Delete old connections from dead child nodes.
@@ -148,9 +152,14 @@ class WifiCore():
             self._loop.create_task(self.send_msg(destination, writers[0], msg))
 
     async def receive_from_child(self, reader, writer):
-        mac = await self.register_mac(reader) # Register peer with mac address.
+        mac = await self.register_mac(reader)       # Register peer with mac address.
         self.children_writers[mac] = (writer, writer.get_extra_info('peername'))
-        self.dprint("[Receive] child added: ",msg["src"], writer.get_extra_info('peername'))
+        new_child = TreeNode(mac, self._id)
+        self.tree_topology.search(self._id).add_child(new_child)
+        self.dprint("[Receive] child added: ", mac, writer.get_extra_info('peername'))
+        await self.topology_changed(self.tree_topology.root.data, self.parent_writer)
+        print("[Close connection] treee changed ", self.tree_topology.pack())
+
         self._loop.create_task(self.receive(reader))
 
     async def register_mac(self, reader):
@@ -176,7 +185,7 @@ class WifiCore():
         try:
             while True:
                 res = await reader.readline()
-                self.dprint("[Receive] from x message: ", res)
+                self._loop.create_task(self.process_message(res)) # Create task so this function is as fast as possible. 
                 if res == b'': # Connection closed by host, clean up. Maybe hard reset.
                     await self.close_connection(writer.get_extra_info('peername'))
                     self.dprint("[Receive] conn is dead")
@@ -184,11 +193,16 @@ class WifiCore():
         except Exception as e:
             self.dprint("[Receive] x conn is prob dead, stop listening. Error: ", e)
             return
-            raise e
+            # raise e
         # self.dprint("Close the connection")
         # del self.children_writers[writer.get_extra_info('peername')]
         # writer.close()
         # await writer.wait_closed()
+
+    async def process_message(self, msg):
+        self.dprint("[RECEIVED] ", msg)
+        obj = await unpack_wifimessage(msg, self)
+        self.dprint("[Receive] from x message: ", obj)
 
     async def send_msg(self, mac, writer, message):
         if not writer:
@@ -202,6 +216,33 @@ class WifiCore():
             print("[Send] Whew! ", e, " occurred.")
             await self.close_connection(mac)
     
+    def on_topology_propagate(self, topology : TopologyPropagate):
+        if not topology.packet["msg"]: # Topology Exchange is blank when children infroms it has connected
+            return
+        del self.tree_topology
+        tree = Tree()
+        json_to_tree(topology.packet["msg"], tree, None)
+        if topology.packet["src"] == tree.root.data:
+            self.tree_topology = tree
+            print("[OnTopologyPropagate] ", topology.packet)
+
+
+    async def topology_changed(self, node, writer):
+        msg = TopologyChanged(self._id, node, self.tree_topology.pack())     # Send Topology update. 
+        await self.send_msg(node, writer, msg)
+
+    def on_topology_changed(self, topology: TopologyChanged):
+        print("[OnTopologyChanged] ", topology.packet)
+        if not topology.packet["msg"] and not self._id != self.tree_topology.root.data: 
+            return
+        tree = Tree()
+        json_to_tree(topology.packet["msg"], tree, None)
+        old_node = self.tree_topology.search(topology.packet["src"])
+        old_node_parent = old_node.parent
+        new_node = tree.search(topology.packet["src"])
+        old_node_parent.del_child(old_node)
+        old_node_parent.add_child(new_node)
+
     async def close_connection(self, mac):
         writer = None
         if mac == self.parent:
@@ -209,9 +250,18 @@ class WifiCore():
             self.parent = None
             self.parent_writer = None
             self.parent_reader = None
+            del self.tree_topology      # Lost connection to parent so drop whole topology.
+            self.tree_topology = None
+            # raise Error # To trigger machine.reset()
         elif mac in self.children_writers:
             writer, ip = self.children_writers[mac]
             del self.children_writers[mac]
+            to_delete = self.tree_topology.search(mac)
+            to_delete.parent.del_child(to_delete)   # Delete lost child from topology.
+            # TODO here is error File "src/wificore.py", line 260, in close_connection
+# AttributeError: 'str' object has no attribute 'del_child'
+            await self.topology_changed(self.tree_topology.root.data, self.parent_writer)
+            print("[Close connection] treee changed ", self.tree_topology.pack())
         if writer:
             writer.close()
             await writer.wait_closed()
@@ -224,11 +274,12 @@ class WifiCore():
         self.children_writers.clear()
         self.dprint("[Clean UP of sockets] Done")
 
+# TODO while not all neighbours in topology tree, try once in (3?) second to claim them (Or to ask root permission to claim them)
+# TODO routing 
 # TODO Open connection sometimes returns StreamIO with ERROR104 ECONNRESET
         # [Send] Whew!  [Errno 104] ECONNRESET  occurred.
         # [Receive] from parent Whew! [Errno 9] EBADF occurred.
         # Probably DONE -- need testing
-# TODO Form a topology from JSON
 # TODO Form a topology automatically. 
 
 def main():

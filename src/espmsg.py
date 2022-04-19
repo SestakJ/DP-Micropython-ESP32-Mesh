@@ -174,9 +174,10 @@ async def unpack_espmessage(msg, core : "core.Core"):
     # }
 
 class WIFIMSG:
-    TOPOLOGY_EXCHANGE=1
-    CLAIM_CHILD_REQUEST=2
-    CLAIM_CHILD_RESPONSE=3
+    TOPOLOGY_PROPAGATE=1
+    TOPOLOGY_CHANGED=2
+    CLAIM_CHILD_REQUEST=3
+    CLAIM_CHILD_RESPONSE=4
 
 class WifiMSGBase():
     def __init__(self, src, dst):
@@ -184,16 +185,33 @@ class WifiMSGBase():
         self.packet["src"] = src
         self.packet["dst"] = dst
 
-class TopologyExchange(WifiMSGBase):
-    type = WIFIMSG.TOPOLOGY_EXCHANGE
+class TopologyPropagate(WifiMSGBase):
+    """
+    Sends root periodically to all other nodes.
+    """
+    type = WIFIMSG.TOPOLOGY_PROPAGATE
 
-    def __init__(self, src,dst,flag, topology):
+    def __init__(self, src, dst, topology, flag = WIFIMSG.TOPOLOGY_PROPAGATE):
         super().__init__(src, dst)
         self.packet["flag"] = flag
         self.packet["msg"] = topology
 
-    async def process(self, core : "wificore.WifiCore"):
-        await asyncio.sleep(0.2)
+    async def process(self, wificore : "wificore.WifiCore"):
+        wificore.on_topology_propagate(self)
+
+class TopologyChanged(WifiMSGBase):
+    """
+    Nodes send update when new node have been added or some node failed down.
+    """
+    type = WIFIMSG.TOPOLOGY_CHANGED
+
+    def __init__(self, src,dst, my_topology, flag = WIFIMSG.TOPOLOGY_CHANGED):
+        super().__init__(src, dst)
+        self.packet["flag"] = flag
+        self.packet["msg"] = my_topology
+
+    async def process(self, wificore : "wificore.WifiCore"):
+        wificore.on_topology_changed(self)
 
 # class ClaimChild:
 #     type = ESP_TYPE.CLAIM_CHILD_REQUEST
@@ -216,7 +234,8 @@ class TopologyExchange(WifiMSGBase):
 
 
 WIFI_PACKETS = {
-    WIFIMSG.TOPOLOGY_EXCHANGE : TopologyExchange
+    WIFIMSG.TOPOLOGY_PROPAGATE  : TopologyPropagate,
+    WIFIMSG.TOPOLOGY_CHANGED    : TopologyChanged
 }
 
 def print_mac(mac):
@@ -233,7 +252,7 @@ def pack_wifimessage(obj):
 async def unpack_wifimessage(msg, core : "wificore.WifiCore"):
     d = json.loads(msg)
     klass = WIFI_PACKETS[d["flag"]]
-    obj = klass(d["src"], d["dst"], d["flag"], d["msg"])
+    obj = klass(d["src"], d["dst"], d["msg"])
     await obj.process(core)
     return obj
 
@@ -346,7 +365,7 @@ async def main():
     dst = hexlify(b'<q\xbf\xe4\x8b\x88', ':').replace(b':', b'').decode()
     new_dst = unhexlify(dst)
     print(new_dst)
-    topo = TopologyExchange(dst, dst, 1, tmp)
+    topo = TopologyPropagate(dst, dst, 1, None)
     msg = pack_wifimessage(topo)
     print(type(msg), msg)
 

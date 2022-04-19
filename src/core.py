@@ -65,7 +65,8 @@ class Core():
         self.mps_start = self.mps_end = 0
         self._loop = asyncio.get_event_loop()
         self._mps_lock = asyncio.Lock() # Asyncio lock for event loop and tasks with use of await.
-        self._wlan_scan_lock = _thread.allocate_lock() # Threading lock similar to the one in C.
+        # self._wlan_scan_lock = _thread.allocate_lock() # Threading lock similar to the one in C.
+        self._wlan_scan_lock = asyncio.ThreadSafeFlag() # Threading lock similar to the one in C.
         # Flags for root election and topology addition.
         self.neigh_last_changed = 0
         self.root = b''
@@ -308,7 +309,7 @@ class Core():
         self.sta_password = self.aes_decrypt(wifi_creds.zpasswd)
         self.dprint(f"[RECEIVED WIFI CREDS FROM PARENT] {self.sta_ssid} and {self.sta_password}")
         self.in_topology = True
-        self._loop.create_task(self.claim_children())
+        # self._loop.create_task(self.claim_children())
 
 
     async def advertise(self):
@@ -318,8 +319,10 @@ class Core():
         cntr = rssi = 0.0
         self.save_neighbour([self._id, cntr, rssi, 0, 0])
         wifies = []
+        self._wlan_scan_lock.set()
         while True:
-            self._wlan_scan_lock.acquire() # Lock is for waiting for results in second thread of scanning.
+            # self._wlan_scan_lock.acquire() # Lock is for waiting for results in second thread of scanning.
+            await self._wlan_scan_lock.wait()
             cntr, rssi = await self.get_cntr_rssi(wifies, b'FourMusketers_2.4GHz')
             self.save_neighbour([self._id, cntr, rssi, 0, 0])
             adv = Advertise(self._id, cntr, rssi)
@@ -390,9 +393,10 @@ class Core():
             wlans.extend(self.sta.wlan.scan())
         except RuntimeError as e: # Sometimes can throw Wifi Unknown Error 0x0102 == no AP found.
             wlans.clear()
-        self._wlan_scan_lock.release()
+        # self._wlan_scan_lock.release()
+        self._wlan_scan_lock.set()
 
-    # TODO in wlan.scan() try uasyncio.core._io_queue.queue_read + return super().recv() from https://github.com/glenn20/micropython/blob/espnow-g20/ports/esp32/modules/aioespnow.py    
+    # TODO in wlan.scan() try asyncio.core._io_queue.queue_read + return super().recv() from https://github.com/glenn20/micropython/blob/espnow-g20/ports/esp32/modules/aioespnow.py    
 
     # TODO Root node after 2,5*ADV time no new node appeared start election process. Only the root node will send claim.
     # Centrality value of nodes will be computed like E(1/abs(rssi))^1/2

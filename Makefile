@@ -11,11 +11,13 @@ all: 0
 	$(CMD) -p /dev/ttyUSB$(port) put boot.py
 	$(CMD) -p /dev/ttyUSB$(port) put main.py	
 	$(CMD) -p /dev/ttyUSB$(port) put src/core.py ./src/core.py
+	$(CMD) -p /dev/ttyUSB$(port) put src/wificore.py ./src/wificore.py
+	$(CMD) -p /dev/ttyUSB$(port) put src/tree.py ./src/tree.py
 	$(CMD) -p /dev/ttyUSB$(port) put src/espmsg.py ./src/espmsg.py
 	$(CMD) -p /dev/ttyUSB$(port) put src/utils.py ./src/utils.py
 	$(CMD) -p /dev/ttyUSB$(port) put src/net.py ./src/net.py
 	$(CMD) -p /dev/ttyUSB$(port) put src/ucrypto/hmac.py ./src/ucrypto/hmac.py
-	$(CMD) -p /dev/ttyUSB$(port) put src/config.json 
+	$(CMD) -p /dev/ttyUSB$(port) put config.json 
 	
 
 pack:
