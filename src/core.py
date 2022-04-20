@@ -274,7 +274,7 @@ class Core():
                 if self._id == self.root:
                     self.in_topology = True
                     self.dprint(f"[ROOT ELECTION] finish")
-                    self._loop.create_task(self.claim_children())
+                    # self._loop.create_task(self.claim_children())
                 break
             else:
                 await asyncio.sleep(DEFAULT_S)
@@ -289,14 +289,11 @@ class Core():
         dec = aes.decrypt(value)
         return dec.decode()
     
-    async def claim_children(self):
+    def claim_children(self, children : list):
         # Claim children if I am root node or if I was added to the topology by parent_claim_received.
-        await asyncio.sleep_ms(1)
-        self.dprint(f"[Claim children] in espMSG {self.ap_essid} {self.ap_password}")
-        for record in self.neighbours.values(): # TODO only for some nodes with good RSSI.
-            t = time.ticks_ms()
-            node_id, node_cntr, node_rssi, last_rx, last_tx = record
-            self.claim_child(node_id, self.aes_encrypt(self.ap_essid), self.aes_encrypt(self.ap_password))
+        self.dprint(f"[Claim children] {children} in espMSG {self.ap_essid} {self.ap_password}")
+        for mac in children:   # TODO only for some nodes with good RSSI.
+            self.claim_child(mac, self.aes_encrypt(self.ap_essid), self.aes_encrypt(self.ap_password))
 
     def claim_child(self, dst_node, essid, pwd):
         wifi_creds = SendWifiCreds(dst_node, len(self.ap_essid), essid, pwd, key=self.creds.decode()[:16])
@@ -319,16 +316,16 @@ class Core():
         cntr = rssi = 0.0
         self.save_neighbour([self._id, cntr, rssi, 0, 0])
         wifies = []
-        self._wlan_scan_lock.set()
+        # self._wlan_scan_lock.set()
         while True:
             # self._wlan_scan_lock.acquire() # Lock is for waiting for results in second thread of scanning.
-            await self._wlan_scan_lock.wait()
+            # await self._wlan_scan_lock.wait()
             cntr, rssi = await self.get_cntr_rssi(wifies, b'FourMusketers_2.4GHz')
             self.save_neighbour([self._id, cntr, rssi, 0, 0])
             adv = Advertise(self._id, cntr, rssi)
             signed_msg = self.send_msg(self.BROADCAST, adv)
             self.dprint("[Advertise send]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
-            _thread.start_new_thread(self.wlan_scan, [wifies]) # Scan wlans in new thread and release lock.
+            # _thread.start_new_thread(self.wlan_scan, [wifies]) # Scan wlans in new thread and release lock.
             await asyncio.sleep(ADVERTISE_S) # Use time of this sleep to switch to other thread. (Should be enough, lock is for sure.)
 
     def get_message_with_digest(self, buf):
@@ -394,7 +391,7 @@ class Core():
         except RuntimeError as e: # Sometimes can throw Wifi Unknown Error 0x0102 == no AP found.
             wlans.clear()
         # self._wlan_scan_lock.release()
-        self._wlan_scan_lock.set()
+        # self._wlan_scan_lock.set()
 
     # TODO in wlan.scan() try asyncio.core._io_queue.queue_read + return super().recv() from https://github.com/glenn20/micropython/blob/espnow-g20/ports/esp32/modules/aioespnow.py    
 
