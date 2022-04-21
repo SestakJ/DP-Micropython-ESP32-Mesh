@@ -13,15 +13,13 @@ import math
 import _thread
 
 from src.net import Net, ESP
-from src.espmsg import  Advertise, ObtainCreds, SendWifiCreds, RootElected, \
+from src.messages import  Advertise, ObtainCreds, SendWifiCreds, RootElected, \
                         pack_espmessage, unpack_espmessage, ESP_PACKETS, ESP_TYPE
-from src.utils import init_button, id_generator
+from src.utils import init_button, id_generator, RIGHT_BUTTON
 from src.ucrypto.hmac import HMAC, compare_digest
 
 # User defined constants.
 CONFIG_FILE = 'config.json'
-LEFT_BUTTON = 32
-RIGHT_BUTTON = 0
 
 # Constants
 DEFAULT_S = const(5)

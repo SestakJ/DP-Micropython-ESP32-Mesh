@@ -12,8 +12,8 @@ from network import AUTH_WPA_WPA2_PSK
 import urandom
 
 from src.net import Net, ESP
-from src.espmsg import  WIFI_PACKETS, TopologyPropagate, TopologyChanged, pack_wifimessage, unpack_wifimessage
-from src.core import EspnowCore, CONFIG_FILE
+from src.messages import  WIFI_PACKETS, TopologyPropagate, TopologyChanged, pack_wifimessage, unpack_wifimessage
+from src.espnowcore import EspnowCore, CONFIG_FILE
 from src.tree import Tree, TreeNode, json_to_tree
 
 # Constants
@@ -31,7 +31,8 @@ def str_to_mac(s : str):
 class WifiCore():
     DEBUG = True
 
-    def __init__(self):
+    def __init__(self, app : "apps.baseapp"):
+        self.app = app
         self.core = EspnowCore()
         self._loop = self.core._loop
         # Network interfaces.
@@ -248,6 +249,10 @@ class WifiCore():
         except Exception as e:
             self.dprint("[Send] Whew! ", e, " occurred.")
             await self.close_connection(mac)
+
+    async def send_to_all(self, msg): # TODO with routing
+        await self.send_to_children_once(msg)
+        await self.send_msg(self.parent, self.parent_writer, msg)
     
     def on_topology_propagate(self, topology : TopologyPropagate):
         """

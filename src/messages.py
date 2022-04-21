@@ -168,6 +168,7 @@ class WIFIMSG:
     TOPOLOGY_CHANGED=2
     CLAIM_CHILD_REQUEST=3
     CLAIM_CHILD_RESPONSE=4
+    APP = 5
 
 class WifiMSGBase():
     def __init__(self, src, dst):
@@ -202,6 +203,19 @@ class TopologyChanged(WifiMSGBase):
 
     async def process(self, wificore : "wificore.WifiCore"):
         wificore.on_topology_changed(self)
+
+class AppMessage(WifiMSGBase):
+
+    type = WIFIMSG.APP
+
+    def __init__(self, src,dst, app_msg, flag = WIFIMSG.TOPOLOGY_CHANGED):
+        super().__init__(src, dst)
+        self.packet["flag"] = flag
+        self.packet["msg"] = my_topology
+
+    async def process(self, wificore : "wificore.WifiCore"):
+        app = wificore.app
+        app.process(self)
 
 # class ClaimChild:
 #     type = ESP_TYPE.CLAIM_CHILD_REQUEST
