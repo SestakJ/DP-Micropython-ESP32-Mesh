@@ -4,17 +4,22 @@
 # Part of diploma thesis.
 # Content: File with WiFi logic
 
+import gc
 import uasyncio as asyncio
 import machine
 import json
 from ubinascii import hexlify, unhexlify
 from network import AUTH_WPA_WPA2_PSK
 import urandom
+gc.collect()
 
 from src.net import Net, ESP
 from src.messages import  WIFI_PACKETS, TopologyPropagate, TopologyChanged, pack_wifimessage, unpack_wifimessage
+gc.collect()
+
 from src.espnowcore import EspnowCore, CONFIG_FILE
 from src.tree import Tree, TreeNode, json_to_tree
+gc.collect()
 
 # Constants
 DEFAULT_S = const(5)

@@ -1,10 +1,7 @@
 from machine import Pin, mem32
 import uasyncio as asyncio
 import neopixel
-import network
-import time
 
-import binascii
 import random
 
 #In ESP32-buddy there is default LED on 25 pin and buttons on pin 0 and 32.

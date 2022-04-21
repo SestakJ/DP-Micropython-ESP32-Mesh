@@ -1,9 +1,10 @@
-    # coding=utf-8
-    # (C) Copyright 2022 Jindrich Sestak (xsesta05)
-    # Licenced under MIT.
-    # Part of diploma thesis.
-    # Content: Classes for network and esp-now interaction.
-    
+# coding=utf-8
+# (C) Copyright 2022 Jindrich Sestak (xsesta05)
+# Licenced under MIT.
+# Part of diploma thesis.
+# Content: Classes for network and esp-now interaction.
+
+import gc
 try:
     import uasyncio as asyncio
     from uasyncio import StreamReader
@@ -12,7 +13,7 @@ try:
 except ImportError:
     import asyncio
     from asyncio import StreamReader
-
+gc.collect()
 
 DEBUG = False
 def dprint(*args):

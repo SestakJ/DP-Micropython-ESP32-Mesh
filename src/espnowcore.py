@@ -4,6 +4,7 @@
 # Part of diploma thesis.
 # Content: File with mesh logic
 
+import gc
 import uasyncio as asyncio
 import time
 import struct
@@ -11,12 +12,16 @@ import json
 import ucryptolib as cryptolib
 import math
 import _thread
+gc.collect()
 
 from src.net import Net, ESP
 from src.messages import  Advertise, ObtainCreds, SendWifiCreds, RootElected, \
                         pack_espmessage, unpack_espmessage, ESP_PACKETS, ESP_TYPE
+gc.collect()
+
 from src.utils import init_button, id_generator, RIGHT_BUTTON
 from src.ucrypto.hmac import HMAC, compare_digest
+gc.collect()
 
 # User defined constants.
 CONFIG_FILE = 'config.json'
