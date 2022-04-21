@@ -185,7 +185,7 @@ class WifiCore():
             tree = self.tree_topology
             cnt_children = 0
             if tree:
-                tmp = list(tree.root.get_children().keys())
+                tmp = list(tree.root.get_children().keys()) + [tree.root.data]
                 tree_nodes = [str_to_mac(i) for i in tmp]
                 cnt_children = len(tree.search(self._id).children)
             possible_children = [mac for mac in neighbour_nodes if mac not in tree_nodes]
