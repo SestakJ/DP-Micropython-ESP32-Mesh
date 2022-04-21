@@ -34,16 +34,18 @@ class ESP_TYPE:
 class Advertise:
     type = ESP_TYPE.ADVERTISE
 
-    def __init__(self, id, cntr, rssi):
+    def __init__(self, id, cntr, rssi, tree_root_elected : bool, ttl : int):
         self.id = id
         self.mesh_cntr = cntr
         self.rssi = rssi
+        self.tree_root_elected = tree_root_elected
+        self.ttl = ttl
     
     async def process(self, core: "core.Core"):
         core.on_advertise(self)
         
     def __repr__(self):
-        return f"Node_ID: {self.id} Centrality: {self.mesh_cntr} RSSI: {self.rssi}"
+        return f"Node_ID: {self.id} Centrality: {self.mesh_cntr} RSSI: {self.rssi} IsRoot {self.tree_root_elected} TTL: {self.ttl}"
 
 
 """
@@ -129,7 +131,7 @@ class RootElected(Advertise):
         await asyncio.sleep(0.30)
 
 ESP_PACKETS = {
-    ESP_TYPE.ADVERTISE              : (Advertise, "!6sff"),
+    ESP_TYPE.ADVERTISE              : (Advertise, "!6sffBi"),
     ESP_TYPE.OBTAIN_CREDS           : (ObtainCreds, "!B6s32s"),
     ESP_TYPE.SEND_WIFI_CREDS        : (SendWifiCreds, "!6sh16s16s"),
     ESP_TYPE.ROOT_ELECTED           : (RootElected, "!6shf"),
@@ -138,7 +140,7 @@ ESP_PACKETS = {
 # Pack msg into bytes.
 def pack_espmessage(obj):
     klass, pattern = ESP_PACKETS[obj.type]
-    msg = struct.pack('B', obj.type) + struct.pack(pattern, *obj.__dict__.values())
+    msg = struct.pack('B', obj.type) + struct.pack(pattern, *[x[1] for x in sorted(obj.__dict__.items())])
     dprint("pack_espmessage: ", msg)
     return msg
 
@@ -243,66 +245,66 @@ async def main():
     idn = b'\xff\xff\xff\xff\xff\xa0' # machine.unique_id()
     cntr = 1452
     rssi = -74.2
-    ad = Advertise(idn, cntr, rssi)
+    ad = Advertise(idn, cntr, rssi, True, 1)
     msg = pack_espmessage(ad)
     print(f"Advertise message {ad}")
-    # tmpmsg = await unpack_espmessage(msg, None)
+    tmpmsg = await unpack_espmessage(msg, None)
+    print(tmpmsg)
+    # gimme_creds = ObtainCreds(0,b'\xff\xff\xff\xff\xff\xa0' )
+    # try:
+    #     msg = pack_espmessage(gimme_creds)
+    # except:
+    #     print(msg)
+    # print(f"Obtain creds 0 {msg}")
+    # # tmpmsg = await unpack_espmessage(msg, "hej")
+    # gimme_creds = ObtainCreds(1,b'\xff\xff\xff\xff\xff\xa0' )
+    # try:
+    #     msg = pack_espmessage(gimme_creds)
+    # except:
+    #     print(msg)
+    # print(f"Obtain creds 1 {msg}")
+    # # tmpmsg = await unpack_espmessage(msg, "hej")
+    # gimme_creds = ObtainCreds(2,b'\xff\xff\xff\xff\xff\xa0' )
+    # msg = pack_espmessage(gimme_creds)
+    # print(f"Obtain creds 2 {msg}")
+    # # tmpmsg = await unpack_espmessage(msg, "hej")
+    # gimme_creds = ObtainCreds(3,b'\xff\xff\xff\xff\xff\xa0' )
+    # msg = pack_espmessage(gimme_creds)
+    # print(f"Obtain creds 3 {msg}")
+    # # tmpmsg = await unpack_espmessage(msg, "hej")
+    # gimme_creds = ObtainCreds(4,b'\xff\xff\xff\xff\xff\xa0' )
+    # msg = pack_espmessage(gimme_creds)
+    # print(f"Obtain creds 4 {msg}")
+    # # tmpmsg = await unpack_espmessage(msg, "hej")
 
-    gimme_creds = ObtainCreds(0,b'\xff\xff\xff\xff\xff\xa0' )
-    try:
-        msg = pack_espmessage(gimme_creds)
-    except:
-        print(msg)
-    print(f"Obtain creds 0 {msg}")
-    # tmpmsg = await unpack_espmessage(msg, "hej")
-    gimme_creds = ObtainCreds(1,b'\xff\xff\xff\xff\xff\xa0' )
-    try:
-        msg = pack_espmessage(gimme_creds)
-    except:
-        print(msg)
-    print(f"Obtain creds 1 {msg}")
-    # tmpmsg = await unpack_espmessage(msg, "hej")
-    gimme_creds = ObtainCreds(2,b'\xff\xff\xff\xff\xff\xa0' )
-    msg = pack_espmessage(gimme_creds)
-    print(f"Obtain creds 2 {msg}")
-    # tmpmsg = await unpack_espmessage(msg, "hej")
-    gimme_creds = ObtainCreds(3,b'\xff\xff\xff\xff\xff\xa0' )
-    msg = pack_espmessage(gimme_creds)
-    print(f"Obtain creds 3 {msg}")
-    # tmpmsg = await unpack_espmessage(msg, "hej")
-    gimme_creds = ObtainCreds(4,b'\xff\xff\xff\xff\xff\xa0' )
-    msg = pack_espmessage(gimme_creds)
-    print(f"Obtain creds 4 {msg}")
-    # tmpmsg = await unpack_espmessage(msg, "hej")
-
-    essid = b'ESP' + hexlify(b'<q\xbf\xe4\x8d\xa1')
-    passwd = b'GpWVdRn3uMNPf1Ep' #id_generator()
-    claim = SendWifiCreds(b'<q\xbf\xe4\x8d\xa1', len(essid), essid, passwd)
-    msg = pack_espmessage(claim)
-    print(f"Send WiFi creds in ESPNOW {msg}")
-    # ret_msg = await unpack_espmessage(msg, "hello")
+    # essid = b'ESP' + hexlify(b'<q\xbf\xe4\x8d\xa1')
+    # passwd = b'GpWVdRn3uMNPf1Ep' #id_generator()
+    # claim = SendWifiCreds(b'<q\xbf\xe4\x8d\xa1', len(essid), essid, passwd)
+    # msg = pack_espmessage(claim)
+    # print(f"Send WiFi creds in ESPNOW {msg}")
+    # # ret_msg = await unpack_espmessage(msg, "hello")
     
-    tmp ={"topology": {"node" : "3c:71:bb:e4:8b:89",
-                      "child" : 
-                      [
-                         {"node" : "3c:71:bb:e4:8b:a1",
-                          "child": 
-                          [
-                              {
-                                  "node": "3c:71:bb:e4:8b:b9",
-                                  "child": {}  
-                              }
-                          ]
-                          }
-                      ]
-                      }
-    }
-    dst = hexlify(b'<q\xbf\xe4\x8b\x88', ':').replace(b':', b'').decode()
-    new_dst = unhexlify(dst)
-    topo = TopologyPropagate(dst, dst, "Topology json")
-    msg = pack_wifimessage(topo)
-    print(f"Topology Propagate  {msg}")
-    # obj = await unpack_wifimessage(msg, "core")
+    # tmp ={"topology": {"node" : "3c:71:bb:e4:8b:89",
+    #                   "child" : 
+    #                   [
+    #                      {"node" : "3c:71:bb:e4:8b:a1",
+    #                       "child": 
+    #                       [
+    #                           {
+    #                               "node": "3c:71:bb:e4:8b:b9",
+    #                               "child": {}  
+    #                           }
+    #                       ]
+    #                       }
+    #                   ]
+    #                   }
+    # }
+    # dst = hexlify(b'<q\xbf\xe4\x8b\x88', ':').replace(b':', b'').decode()
+    # new_dst = unhexlify(dst)
+    # topo = TopologyPropagate(dst, dst, "Topology json")
+    # msg = pack_wifimessage(topo)
+    # print(f"Topology Propagate  {msg}")
+    # # obj = await unpack_wifimessage(msg, "core")
 
 if __name__=="__main__":
     asyncio.run(main())

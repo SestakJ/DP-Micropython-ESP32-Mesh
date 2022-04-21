@@ -186,15 +186,18 @@ class Core():
         Actualize node's own values in database and send to everyone in the mesh.
         """
         cntr = rssi = 0.0
-        self.save_neighbour([self.id, cntr, rssi, 0, 0])
         wifies = []
+        adv = Advertise(self.id, cntr, rssi, self.in_topology, 0)
+        self.save_neighbour(adv, 0, 0)
         # self._wlan_scan_lock.set()
         while True:
             # self._wlan_scan_lock.acquire() # Lock is for waiting for results in second thread of scanning.
             # await self._wlan_scan_lock.wait()
             cntr, rssi = await self.get_cntr_rssi(wifies, b'FourMusketers_2.4GHz')
-            self.save_neighbour([self.id, cntr, rssi, 0, 0])
-            adv = Advertise(self.id, cntr, rssi)
+            adv.mesh_cntr = cntr
+            adv.rssi = rssi
+            adv.tree_root_elected = self.in_topology
+            self.save_neighbour(adv, 0, 0)
             signed_msg = self.send_msg(self.BROADCAST, adv)
             self.dprint("[Advertise send]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
             # _thread.start_new_thread(self.wlan_scan, [wifies]) # Scan wlans in new thread and release lock.
@@ -216,10 +219,10 @@ class Core():
                     cntr = cntr + eqaution
         return cntr, rssi
 
-    def save_neighbour(self, lst: "list of [node_id, node_cntr, node_rssi, last_rx, last_tx]"):
-        adv_node = tuple(lst)
-        node_id = adv_node[0]
-        self.neighbours[node_id] = adv_node         # Update core.neigbours with new values.
+    def save_neighbour(self, adv : Advertise, last_rx, last_tx):
+        # Dictionary {mac : [node_id, node_cntr, node_rssi, is_root, ttl, last_rx, last_tx]}
+        node_id = adv.id
+        self.neighbours[node_id] = [x[1] for x in sorted(adv.__dict__.items())] + [last_rx, last_tx]   # Update core.neigbours with new values.
     
     def on_advertise(self, adv : Advertise):
         """
@@ -229,18 +232,23 @@ class Core():
         """
         record  = self.neighbours.get(adv.id, None)
         last_tx = 0
+        tmp = adv.ttl
         last_rx = time.ticks_ms()
         if record: # Node already registered.
-            node_id,_,_, _,last_tx = record
+            node_id, _cnt, _rss, _root, _ttl, _,last_tx = record
             if node_id == self.id:
                 return
+            adv.ttl = min(_ttl, adv.ttl) # Save the lowest TTL
         else: # New addition. 
             self.neigh_last_changed = last_rx
             last_tx = time.ticks_ms()
+            adv.ttl = adv.ttl + 1
             signed_msg = self.send_msg(self.BROADCAST, adv)
+            adv.ttl = adv.ttl - 1
             self.dprint("[Advertise imedietly forward on new node]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
-        self.save_neighbour(list(adv.__dict__.values()) + [last_rx, last_tx])
-   
+        self.save_neighbour(adv, last_rx, last_tx)
+        adv.ttl = tmp 
+
     async def check_neighbours(self):
         """
         Task will each second check old records and wipe them out.
@@ -250,17 +258,17 @@ class Core():
         while True:
             for record in self.neighbours.values():
                 t = time.ticks_ms()
-                node_id, node_cntr, node_rssi, last_rx, last_tx = record
+                node_id, node_cntr, node_rssi, root_elected, ttl, last_rx, last_tx = record
                 if node_id == self.id:
                     continue
                 elif time.ticks_diff(t, last_rx) > 2*ADVERTISE_OTHERS_MS: # Timeout -> delete record
                     del self.neighbours[node_id]
                     self.neigh_last_changed = t
                 elif time.ticks_diff(last_rx, last_tx) > ADVERTISE_OTHERS_MS: # Timeout -> advertise.
-                    adv = Advertise(node_id, node_cntr, node_rssi)
+                    adv = Advertise(node_id, node_cntr, node_rssi, root_elected, ttl + 1)
                     last_tx = t
                     signed_msg = self.send_msg(self.BROADCAST, adv)
-                    self.save_neighbour([node_id, node_cntr, node_rssi, last_rx, last_tx])
+                    self.save_neighbour(adv, last_rx, last_tx)
                     dprint(self.neighbours)
                     self.dprint("[Advertise every 13s database]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
             await asyncio.sleep(1)
