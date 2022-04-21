@@ -6,6 +6,9 @@
 
 from src.messages import AppMessage, pack_wifimessage, unpack_wifimessage
 from src.wificore import WifiCore
+import gc
+
+gc.collect()
 
 class BaseApp():
     """
@@ -20,7 +23,7 @@ class BaseApp():
         """
         Blocking start of firmware core.
         """
-        print('\nStart: node ID: {}\n'.format(self._id))
+        print('\nStart: Application Blink')
         self._loop.create_task(self.core.start())    # Run Wifi core.
 
     async def process(self, appmsg : ""):

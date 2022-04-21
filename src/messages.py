@@ -4,8 +4,8 @@
 # Part of diploma thesis.
 # Content: Messages class definition for ESPNOW and WIFI, packing and unpacking.
 
-import json
 import gc
+import json
 import struct
 try:
     import uasyncio as asyncio
@@ -208,14 +208,15 @@ class AppMessage(WifiMSGBase):
 
     type = WIFIMSG.APP
 
-    def __init__(self, src,dst, app_msg, flag = WIFIMSG.TOPOLOGY_CHANGED):
+    def __init__(self, src,dst, app_msg, flag = WIFIMSG.APP):
         super().__init__(src, dst)
         self.packet["flag"] = flag
-        self.packet["msg"] = my_topology
+        self.packet["msg"] = app_msg
 
     async def process(self, wificore : "wificore.WifiCore"):
         app = wificore.app
-        app.process(self)
+        wificore._loop.create_task(app.process(self))
+        
 
 # class ClaimChild:
 #     type = ESP_TYPE.CLAIM_CHILD_REQUEST
@@ -238,7 +239,8 @@ class AppMessage(WifiMSGBase):
 
 WIFI_PACKETS = {
     WIFIMSG.TOPOLOGY_PROPAGATE  : TopologyPropagate,
-    WIFIMSG.TOPOLOGY_CHANGED    : TopologyChanged
+    WIFIMSG.TOPOLOGY_CHANGED    : TopologyChanged,
+    WIFIMSG.APP                 : AppMessage
 }
 
 # Prepare WiFi message to be sent

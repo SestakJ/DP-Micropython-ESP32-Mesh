@@ -4,14 +4,17 @@
 # Part of diploma thesis.
 # Content: Base application pattern
 
+import gc
 from .base import BaseApp
 from src.utils import init_button, id_generator, LEFT_BUTTON, LED_PIN, init_LED
 from src.messages import AppMessage
 
+gc.collect()
 import uasyncio as asyncio
 import machine
 import time
 import urandom
+gc.collect()
 
 PRESSED_FOR_MS = const(100)
 
@@ -22,6 +25,7 @@ class BlinkApp(BaseApp):
         self.button = init_button(LEFT_BUTTON, self.btn_pressed) # Register IRQ for MPS procedure.
         self.led = init_LED()
         self.colour = tuple(urandom.randint(0,250) for i in range(3))
+        self.pressed_start = self.pressed_end = 0
 
     async def blink(self):
         """Send app message to blink. """
@@ -43,7 +47,6 @@ class BlinkApp(BaseApp):
             colour = tuple(colour)
             self.led[0] = colour
             self.led.write()
-        print(f"LED switch to colour {colour}")
 
     def btn_pressed(self, irq):
         """
@@ -54,7 +57,6 @@ class BlinkApp(BaseApp):
             self.pressed_start = time.ticks_ms()
         elif irq.value() == 1:
             self.pressed_end = time.ticks_ms()
-        self.dprint("[MPS] button presed for: ", time.ticks_diff(self.pressed_end, self.pressed_start))
         if PRESSED_FOR_MS < time.ticks_diff(self.pressed_end, self.pressed_start) < 10*PRESSED_FOR_MS:
             self._loop.create_task(self.blink())
         return
