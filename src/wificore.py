@@ -180,7 +180,7 @@ class WifiCore():
         tree_nodes = []
         neighbour_nodes = []
         while True:
-            neighbour_nodes = list(self.core.neighbours.keys())
+            neighbour_nodes = list(dict(filter(lambda elem: elem[1][4] == 0, self.core.neighbours.items())).keys())
             tree_nodes = []
             tree = self.tree_topology
             cnt_children = 0
@@ -189,13 +189,7 @@ class WifiCore():
                 tree_nodes = [str_to_mac(i) for i in tmp]
                 cnt_children = len(tree.search(self._id).children)
             possible_children = [mac for mac in neighbour_nodes if mac not in tree_nodes]
-            # try:
-            #     for mac in tree_nodes:
-            #         neighbour_nodes.remove(mac)
-            #     neighbour_nodes.remove(str_to_mac(self._id))
-            # except ValueError as e:
-            #     pass
-            if cnt_children < CHILDREN_COUNT:
+            if cnt_children < CHILDREN_COUNT and possible_children:
                 self.core.claim_children([urandom.choice(possible_children)])
             await asyncio.sleep(2*DEFAULT_S)
 
