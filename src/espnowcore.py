@@ -35,9 +35,9 @@ CREDS_LENGTH = const(32)
 PMK_LMK_LENGTH = const(16)
     
 """
-Core class responsible for mesh operations.
+ESPNOW Core class responsible for mesh operations.
 """
-class Core():
+class EspnowCore():
     BROADCAST = b'\xff\xff\xff\xff\xff\xff'
     DEBUG = True
 
@@ -363,6 +363,8 @@ class Core():
         """
         Wait for messages. Light weight function to not block recv process. Further processing in another coroutine.
         """
+        # buf = bytearray(250)
+        # readinto(buf)
         while True:
             buf =  await self.esp.read(250) # HAS to be 250 otherwise digest is blank, don't know why.
             next_msg = 0
@@ -421,7 +423,7 @@ class Core():
     # TODO Root node confirmation - if multiple roots, select the one with lowes MAC for example.
 
 def main():
-    c = Core()
+    c = EspnowCore()
 
     c.start()
 

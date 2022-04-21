@@ -13,7 +13,7 @@ import urandom
 
 from src.net import Net, ESP
 from src.espmsg import  WIFI_PACKETS, TopologyPropagate, TopologyChanged, pack_wifimessage, unpack_wifimessage
-from src.core import Core, CONFIG_FILE
+from src.core import EspnowCore, CONFIG_FILE
 from src.tree import Tree, TreeNode, json_to_tree
 
 # Constants
@@ -32,7 +32,7 @@ class WifiCore():
     DEBUG = True
 
     def __init__(self):
-        self.core = Core()
+        self.core = EspnowCore()
         self._loop = self.core._loop
         # Network interfaces.
         self.ap = self.core.ap
@@ -87,7 +87,7 @@ class WifiCore():
         """
         while not (self.core.sta_ssid or mac_to_str(self.core.root) == self._id): # Either on_send_wifi_creds received or is root node.
             await asyncio.sleep(DEFAULT_S)
-        # self.core.DEBUG = False     # Stop Debug messages in EspCore
+        # self.core.DEBUG = False     # Stop Debug messages in EspnowCore
         self.sta.wlan.disconnect()  # Disconnect from any previously connected WiFi.
         if self.core.sta_ssid:
             self.sta_ssid = self.core.sta_ssid

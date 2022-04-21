@@ -2,7 +2,7 @@
 # (C) Copyright 2022 Jindrich Sestak (xsesta05)
 # Licenced under MIT.
 # Part of diploma thesis.
-# Content: Messages class definition, packing and unpacking.
+# Content: Messages class definition for ESPNOW and WIFI, packing and unpacking.
 
 import json
 import gc
