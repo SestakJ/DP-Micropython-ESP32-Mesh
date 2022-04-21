@@ -28,14 +28,11 @@ def init_LED(pin_number=LED_PIN):
     mem32[r] |= 1 << 9
     return n
 
-
 # Init button and register interupt function to be called when state changed. 
 def init_button(pin_number=RIGHT_BUTTON, handler=None):
     push_button = Pin(pin_number, Pin.IN, Pin.PULL_UP)  # 23 number pin is input
     push_button.irq(trigger=Pin.IRQ_FALLING | Pin.IRQ_RISING, handler=handler)
     return push_button
-
-
 
 # Function for blinkin with led
 async def blink(c=(10, 0, 0)):
@@ -49,6 +46,7 @@ async def blink(c=(10, 0, 0)):
         led.write()
         await asyncio.sleep_ms(700)
 
+# Random string generator.
 _ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ123456789'
 def id_generator(size=8):
     """
