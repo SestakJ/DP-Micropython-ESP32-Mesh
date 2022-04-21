@@ -70,8 +70,9 @@ class Core():
         self._wlan_scan_lock = asyncio.ThreadSafeFlag() # Threading lock similar to the one in C.
         
         # Flags for root election and topology addition.
-        self.neigh_last_changed = 0        # Watch time from last change to start root election.
-        self.in_topology = False
+        self.neigh_last_changed = 0         # Watch time from last change to start root election.
+        self.in_topology = False            # When node was added into the tree.
+        self.seen_topology = False          # If node sees another node in tree topology don't elect root.
         self.root = b''
 
     def get_config(self):
@@ -222,6 +223,8 @@ class Core():
     def save_neighbour(self, adv : Advertise, last_rx, last_tx):
         # Dictionary {mac : [node_id, node_cntr, node_rssi, is_root, ttl, last_rx, last_tx]}
         node_id = adv.id
+        if adv.tree_root_elected:
+            self.seen_topology = True
         self.neighbours[node_id] = [x[1] for x in sorted(adv.__dict__.items())] + [last_rx, last_tx]   # Update core.neigbours with new values.
     
     def on_advertise(self, adv : Advertise):
@@ -268,6 +271,7 @@ class Core():
                     adv = Advertise(node_id, node_cntr, node_rssi, root_elected, ttl + 1)
                     last_tx = t
                     signed_msg = self.send_msg(self.BROADCAST, adv)
+                    adv.ttl = ttl
                     self.save_neighbour(adv, last_rx, last_tx)
                     dprint(self.neighbours)
                     self.dprint("[Advertise every 13s database]:", signed_msg[: len(signed_msg)-DIGEST_SIZE])
@@ -280,7 +284,9 @@ class Core():
         while not self.neigh_last_changed:
             await asyncio.sleep(DEFAULT_S)
         while True:
-            if time.ticks_diff(time.ticks_ms(), self.neigh_last_changed) > 5*1000: # TODO NEIGHBOURS_NOT_CHANGED_FOR
+            if self.seen_topology:  # If seen node in topology wait to be claimed.
+                break
+            elif time.ticks_diff(time.ticks_ms(), self.neigh_last_changed) > 5*1000: # TODO NEIGHBOURS_NOT_CHANGED_FOR
                 # TODO root election automatically
                 self.dprint(f"[ROOT ELECTION] can start, neigh database ot changed for {NEIGHBOURS_NOT_CHANGED_FOR} seconds")
                 self.root = b'<q\xbf\xe4\x8b\x89' # Used in WifiCore
