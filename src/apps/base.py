@@ -4,11 +4,12 @@
 # Part of diploma thesis.
 # Content: Base application pattern
 
-from src.messages import AppMessage, pack_wifimessage, unpack_wifimessage
-from src.wificore import WifiCore
 import gc
-
+from src.messages import AppMessage, pack_wifimessage, unpack_wifimessage
 gc.collect()
+from src.wificore import WifiCore
+gc.collect()
+
 
 class BaseApp():
     """

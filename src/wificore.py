@@ -14,10 +14,11 @@ import urandom
 gc.collect()
 
 from src.net import Net, ESP
-from src.messages import  WIFI_PACKETS, TopologyPropagate, TopologyChanged, pack_wifimessage, unpack_wifimessage
+from src.messages import  WIFI_PACKETS, TopologyPropagate, TopologyChanged, pack_wifimessage, unpack_wifimessage, WIFIMSG
 gc.collect()
 
 from src.espnowcore import EspnowCore, CONFIG_FILE
+gc.collect()
 from src.tree import Tree, TreeNode, json_to_tree
 gc.collect()
 
@@ -57,6 +58,7 @@ class WifiCore():
         self.parent = self.parent_reader = self.parent_writer = None
 
         self.tree_topology = None
+        self.routing_table = {}    # Routing for descendants, everything else is transmitted to parent
 
     def dprint(self, *args):
         if self.DEBUG:
@@ -113,16 +115,15 @@ class WifiCore():
 
     async def send_beacon_to_parent(self):
         """ Send blank messages to parent for him to save my MAC addr and beacon to him."""
-        msg = TopologyPropagate(self._id, "ffffffffffff", None) 
+        msg = TopologyPropagate(self._id, "parent", None) 
         while True:
             self.dprint("[SEND] to parent")
-            msg.packet["msg"] = None
             await self.send_msg(self.parent , self.parent_writer, msg)
             await asyncio.sleep(BEACON_S)
             
     async def listen_to_parent(self):
         self.parent = await self.register_mac(self.parent_reader) # Register peer with mac address
-        self._loop.create_task(self.on_message(self.parent_reader))
+        self._loop.create_task(self.on_message(self.parent_reader, self.parent))
            
 
     async def start_parenting_server(self):
@@ -163,7 +164,7 @@ class WifiCore():
         await self.topology_changed(self.tree_topology.root.data, self.parent_writer)
         print("[Receive new child] treee changed ", self.tree_topology.pack())
 
-        self._loop.create_task(self.on_message(reader))
+        self._loop.create_task(self.on_message(reader, mac))
         
     async def send_topology_propagate(self, msg):
         """ Periodically propagate tree topology to children nodes."""
@@ -176,6 +177,7 @@ class WifiCore():
     async def send_to_children_once(self, msg):
         print("[SEND] to children")
         for destination, writers in self.children_writers.items(): # writers is a tuple(stream_writer, tuple(IP, port))
+            msg.packet["dst"] = destination
             self._loop.create_task(self.send_msg(destination, writers[0], msg))
 
     async def claim_children(self):
@@ -203,42 +205,75 @@ class WifiCore():
         """
         Receive first blank packet to be able to register MAC address of node
         """
-        try:
-            res = await reader.readline()
-            self._loop.create_task(self.process_message(res))
-            if res == b'': # Connection closed by host, clean up. Maybe hard reset.
-                await self.close_connection(writer.get_extra_info('peername'))
-                self.dprint("[Receive] conn is dead")
+        new_mac = None
+        while not new_mac:
+            try:
+                res = await reader.readline()
+                msg = json.loads(res)
+                if msg["flag"] == WIFIMSG.APP: # Ignore App meseges until register MAC.
+                    continue
+                if res == b'': # Connection closed by host, clean up. Maybe hard reset.
+                    self.dprint("[Receive] conn is dead")
+                    return
+                new_mac = msg["src"]
+                self._loop.create_task(self.process_message(res, msg["src"]))
+                
+            except Exception as e:
+                self.dprint("[Receive] x conn is prob dead, stop listening. Error: ", e)
                 return
-        except Exception as e:
-            self.dprint("[Receive] x conn is prob dead, stop listening. Error: ", e)
-            await self.close_connection(writer.get_extra_info('peername'))
-            return
-        msg = json.loads(res)
-        return msg["src"]
+        return new_mac
 
-    async def on_message(self, reader):
+    async def on_message(self, reader, mac):
         """
         Wait for messages. Light weight function to not block recv process. Further processing in another coroutine.
         """
-        # TODO add parametre writer to be able to close him
-        # TODO must be a routing table and when dst address is not myself retransmit in direction of dst address up or down stream.
         try:
             while True:
                 res = await reader.readline()
-                self._loop.create_task(self.process_message(res)) # Create task so this function is as fast as possible. 
+                self._loop.create_task(self.process_message(res, mac)) # Create task so this function is as fast as possible. 
                 if res == b'': # Connection closed by host, clean up. Maybe hard reset.
-                    await self.close_connection(writer.get_extra_info('peername'))
                     self.dprint("[Receive] conn is dead")
                     return
         except Exception as e:
             self.dprint("[Receive] x conn is prob dead, stop listening. Error: ", e)
-            await self.close_connection(writer.get_extra_info('peername'))
             return
 
-    async def process_message(self, msg):
-        obj = await unpack_wifimessage(msg, self)
+    async def process_message(self, msg, src_mac):
+        """
+        Decide what to do with messages, eventually just resend them further into the mesh.
+        """
+        js = json.loads(msg)
+        if js["dst"] == self._id:
+            obj = await unpack_wifimessage(msg, self)
+        elif js["dst"] == "ffffffffffff":   # Message destined to everyone. Process and resend.
+            obj = await unpack_wifimessage(msg, self)
+            nodes = [self.parent] + list(self.children_writers.keys())
+            if src_mac:
+                nodes.remove(src_mac)
+            await self.send_to_nodes(msg, nodes) # Resend broadcast to every other node you see. They will resend it also. 
+        elif js["dst"] == "parent":   # Message destined fo parent node from child (Beacon message, just for mac register, can drop).
+            pass 
+        else: 
+            await self.resend(msg, js)
         self.dprint("[Processed msg] ", msg)
+
+    async def resend(self, msg, js):
+        self.update_routing_table()
+        routing_table = self.routing_table
+        if js["dst"] in routing_table.keys():
+            dst = routing_table.get(js["dst"])
+            writer = self.get_writer(dst)
+            await self.send_msg(dst, writer, msg)
+        else:
+            await self.send_msg(self.parent, self.parent_writer, msg)
+
+    def get_writer(self, mac):
+        if mac == self.parent:
+            return self.parent_writer
+        elif mac in self.children_writers.keys(): 
+            return self.children_writers.get(mac)[0]
+        else:
+            return None
 
     async def send_msg(self, mac, writer, message):
         """
@@ -248,29 +283,44 @@ class WifiCore():
             return
         try:
             self.dprint("[SEND] to:", mac ," message: ", message)
-            writer.write('{}\n'.format(pack_wifimessage(message)))
+            if type(message) is bytes or type(message) is str:  # Resending just string.
+                writer.write(message)
+            else:       # Message is object, must be packed.
+                writer.write('{}\n'.format(pack_wifimessage(message)))
             await writer.drain()
             self.dprint("[SEND] drained and done")
         except Exception as e:
             self.dprint("[Send] Whew! ", e, " occurred.")
             await self.close_connection(mac)
 
-    async def send_to_all(self, msg): # TODO with routing
-        await self.send_to_children_once(msg)
-        await self.send_msg(self.parent, self.parent_writer, msg)
-    
+    async def send_to_nodes(self, msg, nodes=None): 
+        """ Send to directly connected nodes. Useful for broadcast messages and for application.  """
+        if nodes is None:
+            nodes = [self.parent] + list(self.children_writers.keys())
+        for node in nodes:
+            writer = self.get_writer(node)
+            await self.send_msg(node, writer, msg)
+
+    async def send_to_all(self, msg):
+        """ Send to everyone in the mesh. Can be also used by application. """
+        nodes = list(self.tree_topology.root.get_children().keys()) + [self.tree_topology.root.data]
+        nodes.remove(self._id)
+        for node in nodes:
+            msg.packet["dst"] = node
+            await self.resend(msg, msg.packet)
+
     def on_topology_propagate(self, topology : TopologyPropagate):
         """
         Called from message.py. Save tree topology only from parent node.
         """
         if not topology.packet["msg"]: # Topology Exchanges are blank from children as beacons
             return
-        tmp = self.tree_topology
-        self.tree_topology = None
-        del tmp
         tree = Tree()
         json_to_tree(topology.packet["msg"], tree, None)
-        if topology.packet["src"] == self.parent:
+        if topology.packet["src"] == self.parent or topology.packet["src"] == self.tree_topology.root.data:
+            tmp = self.tree_topology
+            self.tree_topology = None
+            del tmp
             self.tree_topology = tree
             print("[OnTopologyPropagate] ", topology.packet)
 
@@ -295,6 +345,9 @@ class WifiCore():
         old_node_parent.del_child(old_node)
         old_node_parent.add_child(new_node)
 
+    def update_routing_table(self):
+        self.routing_table = self.tree_topology.search(self._id).get_children()
+
     async def close_connection(self, mac):
         writer = None
         if mac == self.parent:
@@ -309,8 +362,6 @@ class WifiCore():
             writer, ip = self.children_writers[mac]
             del self.children_writers[mac]
             to_delete = self.tree_topology.search(mac)
-            print(to_delete)
-            print(to_delete.parent)
             to_delete.parent.del_child(to_delete)   # Delete lost child from topology.
             await self.topology_changed(self.tree_topology.root.data, self.parent_writer)
             print("[Close connection] treee changed ", self.tree_topology.pack())
@@ -326,9 +377,6 @@ class WifiCore():
             await self.close_connection(address)
         self.children_writers.clear()
         self.dprint("[Clean UP of sockets] Done")
-
-# TODO Now nodes every x seconds try to claim new nodes. But RSSI to nodes doesn't work
-# TODO routing 
 
 def main():
     from src.wificore import WifiCore
