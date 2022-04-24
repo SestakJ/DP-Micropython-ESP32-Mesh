@@ -23,7 +23,7 @@ from src.tree import Tree, TreeNode, json_to_tree
 gc.collect()
 
 # Constants
-DEFAULT_S = const(5)
+DEFAULT_S = const(7)
 BEACON_S = const(15)
 SERVER_PORT = const(1234)
 CHILDREN_COUNT = const(1)  # Number of maximum children for each node.
