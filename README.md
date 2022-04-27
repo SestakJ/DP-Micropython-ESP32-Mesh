@@ -15,6 +15,9 @@ idf.py -D MICROPY_BOARD=GENERIC_SPIRAM build \
 idf.py erase_flash \
 idf.py flash  \
 
+OR: \
+make BOARD=GENERIC_SPIRAM deploy \ 
+
 -using ampy to run, put, list, etc. files on ESP32: `ampy -p /dev/ttyUSB0 run webpage.py`
 
 -using mpremote to connect to REPL : `mpremote [--port Port]`

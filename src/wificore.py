@@ -11,6 +11,7 @@ import json
 from ubinascii import hexlify, unhexlify
 from network import AUTH_WPA_WPA2_PSK
 import urandom
+import micropython
 gc.collect()
 
 from src.net import Net, ESP
@@ -64,12 +65,19 @@ class WifiCore():
         if self.DEBUG:
             print(*args)
 
+    async def mem_info(self):
+        while True:
+            print(f"Allocated memory:{gc.mem_alloc()} free memory: {gc.mem_free()}")
+
+            await asyncio.sleep(5)
+
     def start(self):
         """
         Blocking start of firmware core.
         """
         print('\nStart: node ID: {}\n'.format(self._id))
         self._loop.create_task(self.core._run())    # Run ESPNOW core.
+        self._loop.create_task(self.mem_info())
         self._loop.create_task(self._run())
         try:
             self._loop.run_forever()
