@@ -26,6 +26,14 @@ all: 0
 	$(CMD) -p /dev/ttyUSB$(port) put src/apps/base.py ./src/apps/base.py
 	$(CMD) -p /dev/ttyUSB$(port) put src/apps/blinkapp.py ./src/apps/blinkapp.py
 
+ap:
+	$(CMD) -p /dev/ttyUSB$(port) put testing/ap/boot.py
+	$(CMD) -p /dev/ttyUSB$(port) put testing/ap/main.py
+
+sta:
+	$(CMD) -p /dev/ttyUSB$(port) put testing/sta/boot.py
+	$(CMD) -p /dev/ttyUSB$(port) put testing/sta/main.py
+
 pack:
 	zip $(NAME).zip -r src/ Makefile README.md
 
