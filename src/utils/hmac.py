@@ -1,5 +1,6 @@
 """HMAC (Keyed-Hashing for Message Authentication) MicroPython module.
 Implements the HMAC algorithm as described by RFC 2104.
+--origin: https://github.com/dmazzella/ucrypto
 """
 
 from binascii import hexlify

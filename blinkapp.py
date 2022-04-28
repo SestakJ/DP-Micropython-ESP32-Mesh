@@ -2,30 +2,42 @@
 # (C) Copyright 2022 Jindrich Sestak (xsesta05)
 # Licenced under MIT.
 # Part of diploma thesis.
-# Content: Base application pattern
+# Content: Blink application pattern
 
 import gc
-from .base import BaseApp
-from src.utils import init_button, id_generator, LEFT_BUTTON, LED_PIN, init_LED
-from src.messages import AppMessage
-
+from src.wificore import WifiCore
 gc.collect()
+
+from src.utils.messages import AppMessage
+gc.collect()
+
+from src.utils.pins import init_button, LEFT_BUTTON, init_LED
+gc.collect()
+
 import uasyncio as asyncio
-import machine
 import time
 import urandom
 gc.collect()
 
 PRESSED_FOR_MS = const(100)
 
-class BlinkApp(BaseApp):
+class BlinkApp():
 
     def __init__(self):
-        super().__init__()
+        self.core = WifiCore(self)
+        self._loop = self.core._loop
         self.button = init_button(LEFT_BUTTON, self.btn_pressed) # Register IRQ for MPS procedure.
         self.led = init_LED()
         self.colour = tuple(urandom.randint(0,250) for i in range(3))
         self.pressed_start = self.pressed_end = 0
+
+
+    def start(self):
+        """
+        Blocking start of firmware core.
+        """
+        print('\nStart: Application Blink')
+        self._loop.create_task(self.core.start())    # Run Wifi core.
 
     async def blink(self):
         """Send app message to blink. """
