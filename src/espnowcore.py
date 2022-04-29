@@ -105,7 +105,7 @@ class EspnowCore():
         """
         Blocking start of firmware core.
         """
-        print('\nStart: node ID: {}\n'.format(self.id))
+        print('\nStart ESPNOWCORE: node ID: {}\n'.format(self.id))
         self._loop.create_task(self._run())
         self._loop.run_forever()
 
@@ -113,7 +113,7 @@ class EspnowCore():
         """
         Creation of all the neccessary tasks for mesh.
         """
-        await asyncio.sleep(DEFAULT_S)
+        await asyncio.sleep_ms(10)
         # Add broadcast peer
         self.esp.add_peer(self.BROADCAST)
         self._loop.create_task(self.on_message())  # Receive messages
@@ -153,9 +153,9 @@ class EspnowCore():
     async def allow_mps(self):
         """ Allow exchange of credentials only for some amount of time."""
         self.in_mps = True
-        self.dprint("\t[MPS ALLOWED] for: ", MPS_TIMER_S, "seconds.")
+        print("\t[MPS ALLOWED] for: ", MPS_TIMER_S, "seconds.")
         await asyncio.sleep(MPS_TIMER_S)
-        self.dprint("\t[MPS ALLOWED ENDED] now")
+        print("\t[MPS ALLOWED ENDED] now")
         self.in_mps = False
 
     async def get_signing_creds(self):
@@ -167,7 +167,7 @@ class EspnowCore():
             self._loop.run_until_complete(self._mps_lock.acquire())
             await asyncio.wait_for(self._obtain_signing_creds(), MPS_TIMER_S)
         except asyncio.TimeoutError:
-            print('ERROR : MPS timeout!')
+            print('[MPS timeout!] Try again')
         except OSError as e:
             raise e
 
@@ -176,7 +176,7 @@ class EspnowCore():
         while not self.has_creds():
             send_msg = self.send_creds(0, self.creds, peer=self.BROADCAST)
             await asyncio.sleep(DEFAULT_S)
-        self.dprint("\t[MPS credentials obtained] ")
+        print("\t[MPS credentials obtained] ")
         self._mps_lock.release()
 
     def send_creds(self, flag, creds, peer=BROADCAST):
@@ -282,7 +282,7 @@ class EspnowCore():
                     adv.ttl = ttl
                     self.save_neighbour(adv, last_rx, last_tx)
                     dprint(self.neighbours)
-                    self.dprint("[Advertise every 13s database]:", signed_msg[: len(signed_msg) - DIGEST_SIZE])
+                    dprint("[Advertise every 13s database]:", signed_msg[: len(signed_msg) - DIGEST_SIZE])
             await asyncio.sleep(1)
 
     async def check_root_election(self):
@@ -297,12 +297,12 @@ class EspnowCore():
             elif time.ticks_diff(time.ticks_ms(),
                                  self.neigh_last_changed) > 5 * 1000:  # TODO NEIGHBOURS_NOT_CHANGED_FOR
                 # TODO root election automatically
-                self.dprint(
+                print(
                     f"[ROOT ELECTION] can start, neigh database ot changed for {NEIGHBOURS_NOT_CHANGED_FOR} seconds")
                 self.root = b'<q\xbf\xe4\x8b\x89'  # Used in WifiCore
                 if self.id == b'<q\xbf\xe4\x8b\x89':
                     self.in_topology = True
-                    self.dprint(f"[ROOT ELECTION] finish")
+                    print(f"[ROOT ELECTION] finished, root is {self.root}")
                 break
             else:
                 await asyncio.sleep(DEFAULT_S)
@@ -321,7 +321,7 @@ class EspnowCore():
         """
         Trigerred from upper level (WifiCore) class. Claim children from list. 
         """
-        self.dprint(f"[Claim children] {children} in espMSG {self.ap_essid} {self.ap_password}")
+        print(f"[Claim children] {children} in espMSG SSID: {self.ap_essid} PASSWORD: {self.ap_password}")
         for mac in children:  # TODO only for some nodes with good RSSI.
             self._send_wifi_creds(mac, self.aes_encrypt(self.ap_essid), self.aes_encrypt(self.ap_password))
 
@@ -337,7 +337,7 @@ class EspnowCore():
             return
         self.sta_ssid = self.aes_decrypt(wifi_creds.cessid)[:wifi_creds.bessid_length]
         self.sta_password = self.aes_decrypt(wifi_creds.zpasswd)
-        self.dprint(f"[RECEIVED WIFI CREDS FROM PARENT] {self.sta_ssid} and {self.sta_password}")
+        print(f"[RECEIVED WIFI CREDS FROM PARENT] {self.sta_ssid} and {self.sta_password}")
         self.in_topology = True
 
     def send_msg(self, peer=None, msg: "espmsg.class" = ""):

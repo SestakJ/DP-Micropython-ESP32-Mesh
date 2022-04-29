@@ -18,6 +18,8 @@ import json
 from ubinascii import hexlify, unhexlify
 from network import AUTH_WPA_WPA2_PSK
 import urandom
+import machine
+
 gc.collect()
 
 
@@ -25,7 +27,7 @@ gc.collect()
 DEFAULT_S = const(7)
 BEACON_S = const(15)
 SERVER_PORT = const(1234)
-CHILDREN_COUNT = const(1)  # Number of maximum children for each node.
+CHILDREN_COUNT = const(2)  # Number of maximum children for each node.
 
 
 def mac_to_str(mac: bytes):
@@ -43,7 +45,7 @@ async def mem_info():
 
 
 class WifiCore():
-    DEBUG = True
+    DEBUG = False
 
     def __init__(self, app: "apps.baseapp"):
         self.app = app
@@ -76,17 +78,16 @@ class WifiCore():
         """
         Blocking start of firmware core.
         """
-        print('\nStart: node ID: {}\n'.format(self._id))
+        print('\nStart WIFICORE: node ID: {}\n'.format(self._id))
         self._loop.create_task(self.core._run())  # Run ESPNOW core.
         self._loop.create_task(mem_info())
         self._loop.create_task(self._run())
         try:
             self._loop.run_forever()
         except Exception as e:  # TODO Every except raises exception meaning that the task is broken, reset whole device
-            # asyncio.run(self.close_all())
+            asyncio.run(self.close_all())
             print(e)
-        #     import machine
-        #     # machine.reset() # TODO uncomment. It solves the problem with ERROR 104 ECONNRESET after Soft Reset on child.
+            machine.reset() # TODO uncomment. It solves the problem with ERROR 104 ECONNRESET after Soft Reset on child.
 
     async def _run(self):
         """ Starting points in the mesh. Additional task created in called functions. """
@@ -105,13 +106,13 @@ class WifiCore():
         while not (self.core.sta_ssid or mac_to_str(
                 self.core.root) == self._id):  # Either on_send_wifi_creds received or is root node.
             await asyncio.sleep(DEFAULT_S)
-        # self.core.DEBUG = False     # Stop Debug messages in EspnowCore
+        self.core.DEBUG = False     # Stop Debug messages in EspnowCore
         self.sta.wlan.disconnect()  # Disconnect from any previously connected WiFi.
         if self.core.sta_ssid:
             self.sta_ssid = self.core.sta_ssid
             self.sta_password = self.core.sta_password
             await self.sta.do_connect(self.sta_ssid, self.sta_password)
-            self.dprint("[Connect to parent WiFi] Done")
+            print("[Connect to parent WiFi] Done")
         else:  # Node is root node. Create Topology with itself on top.
             tree = Tree()
             tree.root = TreeNode(self._id, None)
@@ -119,7 +120,7 @@ class WifiCore():
             return
 
         self.parent_reader, self.parent_writer = await asyncio.open_connection(self.sta.ifconfig()[2], SERVER_PORT)
-        self.dprint("[Open connection to parent] Done")
+        print("[Open connection to parent] Done")
         self._loop.create_task(self.send_beacon_to_parent())
         self._loop.create_task(self.listen_to_parent())
 
@@ -142,14 +143,14 @@ class WifiCore():
         self.ap.config(essid=self.ap_essid, password=self.ap_password, authmode=self.ap_authmode, hidden=0)
         while not self.ap.wlan.active():
             await asyncio.sleep(DEFAULT_S)
-        self.dprint("[START SERVER]")
+        print("[START SERVER]")
         try:
             await self.in_tree_topology()  # Either root node has created topology or must wait for parent to send topology.
             await asyncio.start_server(self.listen_to_children, '0.0.0.0', SERVER_PORT)
             self._loop.create_task(self.send_topology_propagate(msg=["hello to child From ROOTOOOOT", 195]))
             self._loop.create_task(self.claim_children())
         except Exception as e:
-            self.dprint("[Start Server] error: ", e)
+            print("[Start Server] error: ", e)
             raise e
 
     async def in_tree_topology(self):
@@ -169,9 +170,9 @@ class WifiCore():
         my_node = self.tree_topology.search(self._id)
         new_child = TreeNode(mac, my_node)
         self.tree_topology.search(self._id).add_child(new_child)
-        self.dprint("[Receive] child added: ", mac, writer.get_extra_info('peername'))
+        print("[Receive] child added: ", mac, writer.get_extra_info('peername'))
         await self.topology_changed(self.tree_topology.root.data, self.parent_writer)
-        print("[Receive new child] treee changed ", self.tree_topology.pack())
+        self.dprint("[Receive new child] treee changed ", self.tree_topology.pack())
 
         self._loop.create_task(self.on_message(reader, mac))
 
@@ -184,7 +185,7 @@ class WifiCore():
             await asyncio.sleep(DEFAULT_S)
 
     async def send_to_children_once(self, msg):
-        print("[SEND] to children")
+        self.dprint("[SEND] to children")
         for destination, writers in self.children_writers.items():  # writers is a tuple(stream_writer, tuple(IP, port))
             msg.packet["dst"] = destination
             self._loop.create_task(self.send_msg(destination, writers[0], msg))
@@ -202,7 +203,7 @@ class WifiCore():
             tree = self.tree_topology
             cnt_children = 0
             if tree:
-                tmp = list(tree.root.get_children().keys()) + [tree.root.data]
+                tmp = tree.root.get_all() + [tree.root.data]
                 tree_nodes = [str_to_mac(i) for i in tmp]
                 cnt_children = len(tree.search(self._id).children)
             possible_children = [mac for mac in neighbour_nodes if mac not in tree_nodes]
@@ -270,7 +271,6 @@ class WifiCore():
         self.dprint("[Processed msg] ", msg)
 
     async def resend(self, msg, js):
-        self.update_routing_table()
         routing_table = self.routing_table
         if js["dst"] in routing_table.keys():
             dst = routing_table.get(js["dst"])
@@ -302,7 +302,7 @@ class WifiCore():
             await writer.drain()
             self.dprint("[SEND] drained and done")
         except Exception as e:
-            self.dprint("[Send] Whew! ", e, " occurred.")
+            print("[Send] Whew! ", e, " occurred.")
             await self.close_connection(mac)
 
     async def send_to_nodes(self, msg, nodes=None):
@@ -315,7 +315,7 @@ class WifiCore():
 
     async def send_to_all(self, msg):
         """ Send to everyone in the mesh. Can be also used by application. """
-        nodes = list(self.tree_topology.root.get_children().keys()) + [self.tree_topology.root.data]
+        nodes = self.tree_topology.root.get_all() + [self.tree_topology.root.data]
         nodes.remove(self._id)
         for node in nodes:
             msg.packet["dst"] = node
@@ -329,23 +329,27 @@ class WifiCore():
             return
         tree = Tree()
         json_to_tree(topology.packet["msg"], tree, None)
+
         if topology.packet["src"] == self.parent or topology.packet["src"] == self.tree_topology.root.data:
             tmp = self.tree_topology
             self.tree_topology = None
             del tmp
             self.tree_topology = tree
-            print("[OnTopologyPropagate] ", topology.packet)
+            print("[OnTopologyPropagate] ", self.tree_topology)
+        self.update_routing_table()
+
 
     async def topology_changed(self, node, writer):
         # When new node connects or child node fails down inform just only root node.
         msg = TopologyChanged(self._id, node, self.tree_topology.pack())  # Send Topology update.
         await self.send_msg(node, writer, msg)
+        self.update_routing_table()
+
 
     def on_topology_changed(self, topology: TopologyChanged):
         """
         Called from message.py. Topology update is saved only on root node. Root node then propagates new topology.
         """
-        print("[OnTopologyChanged] ", topology.packet)
         if not topology.packet["msg"] and not self._id != self.tree_topology.root.data:
             return
         tree = Tree()
@@ -356,9 +360,10 @@ class WifiCore():
         new_node.parent = old_node_parent
         old_node_parent.del_child(old_node)
         old_node_parent.add_child(new_node)
+        print("[OnTopologyChanged] ", self.tree_topology)
 
     def update_routing_table(self):
-        self.routing_table = self.tree_topology.search(self._id).get_children()
+        self.routing_table = self.tree_topology.search(self._id).get_routes()
 
     async def close_connection(self, mac):
         writer = None
@@ -388,7 +393,7 @@ class WifiCore():
         for address, writer in self.children_writers.items():
             await self.close_connection(address)
         self.children_writers.clear()
-        self.dprint("[Clean UP of sockets] Done")
+        print("[Clean UP of sockets] Done")
 
 
 def main():
