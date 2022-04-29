@@ -26,7 +26,8 @@ class Net:
         self.mode = mode
         self.wlan = network.WLAN(self.mode) # Create an interface
         self.wlan.active(True)
-        
+        self.wlan.config(channel=1)
+
     def isconnected(self):
         return self.wlan.isconnected()
 

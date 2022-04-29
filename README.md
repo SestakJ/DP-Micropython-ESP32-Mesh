@@ -3,10 +3,7 @@ Diploma Thesis in micropython ESP32
 
 
 ## Manual to ESP32 boards
-Micropython firmwares for ESP32 https://github.com/glenn20/micropython-espnow-images \ 
-And to upload them to ESP32 board:
-    esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 115200 write_flash -z 0x1000 ../../Downloads/firmware-esp32-GENERICv17.bin
-
+To get MicroPython on your board you need IDF from Espressif. Then download MicroPython and execute: \
 cd micropython \
 make -C mpy-cross/ \
 cd ports/esp32/ \
@@ -24,8 +21,7 @@ make BOARD=GENERIC_SPIRAM deploy \
 
 ## Project
 
-- Microdot web server in micropython from https://github.com/miguelgrinberg/microdot
-- HMAC class in ucrypto/hmac.py from https://github.com/dmazzella/ucrypto \
+- HMAC class in src/utils/hmac.py from https://github.com/dmazzella/ucrypto \
 Sign every message iven if doesn't have credentials. Nodes in mesh with credentials will drop the message.
 - config.json is configuration file, pmk and lmk must be 16B and creds should be 32B.
 
