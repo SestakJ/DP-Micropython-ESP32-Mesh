@@ -1,5 +1,5 @@
 # coding=utf-8
-# (C) Copyright 2022 Jindrich Sestak (xsesta05)
+# (C) Copyright 2022 Jindřich Šestak (xsesta05)
 # Licenced under MIT.
 # Part of diploma thesis.
 # Content: File with mesh logic
@@ -9,7 +9,7 @@ gc.collect()
 from src.utils.net import Net, ESP
 gc.collect()
 from src.utils.messages import Advertise, ObtainCreds, SendWifiCreds, pack_espmessage, unpack_espmessage, ESP_PACKETS, \
-    ESP_TYPE
+    Esp_Type
 gc.collect()
 from src.utils.pins import init_button, id_generator, RIGHT_BUTTON
 gc.collect()
@@ -39,17 +39,17 @@ CREDS_LENGTH = const(32)
 PMK_LMK_LENGTH = const(16)
 
 """
-ESPNOW Core class responsible for mesh operations.
+ESP-NOW Core class responsible for mesh operations.
 """
 
 
-class EspnowCore():
+class EspNowCore:
     BROADCAST = b'\xff\xff\xff\xff\xff\xff'
     DEBUG = True
 
     def __init__(self):
         with open(CONFIG_FILE) as f:
-            self._config = json.loads(f.read())
+            self.config = json.loads(f.read())
         # Network and ESPNOW interfaces.
         self.ap = Net(1)  # Access point interface.
         self.sta = Net(0)  # Station interface
@@ -58,6 +58,7 @@ class EspnowCore():
         self.sta_ssid = self.sta_password = None
         self.esp = ESP()
         self.creds = b'\x00'
+        self._creds_msg_size = None
 
         # Node espnow mesh definitions.
         self.id = self.ap.wlan.config('mac')
@@ -69,7 +70,7 @@ class EspnowCore():
         # Asyncio and PIN Interupt definition.
         self.button = init_button(RIGHT_BUTTON, self.mps_button_pressed)  # Register IRQ for MPS procedure.
         self.mps_start = self.mps_end = 0
-        self._loop = asyncio.get_event_loop()
+        self.loop = asyncio.get_event_loop()
         self.in_mps = False  # Flag signalize MPS procedure
         self._mps_lock = asyncio.Lock()  # Asyncio lock tol allow only one MPS proceduer at the time.
         # self._wlan_scan_lock = _thread.allocate_lock() # Threading lock similar to the one in C.
@@ -82,7 +83,7 @@ class EspnowCore():
         self.root = b''
 
     def get_config(self):
-        creds = self._config.get('credentials')
+        creds = self.config.get('credentials')
         if creds is None:
             creds = CREDS_LENGTH * b'\x00'
         elif len(creds) != CREDS_LENGTH:
@@ -90,10 +91,10 @@ class EspnowCore():
             new_creds = creds + (CREDS_LENGTH - len(creds)) * b'\x00'
             creds = new_creds[:CREDS_LENGTH]
         self.creds = creds  # Now is 32Bytes long for HMAC(SHA256) signing.
-        _, pattern = ESP_PACKETS[ESP_TYPE.OBTAIN_CREDS]
+        _, pattern = ESP_PACKETS[Esp_Type.OBTAIN_CREDS]
         self._creds_msg_size = struct.calcsize(pattern) + 1  # Size of ObtainCreds class message.
-        self.esp_pmk = self._config.get('esp_pmk').encode()
-        self.esp_lmk = self._config.get('esp_lmk').encode()
+        self.esp_pmk = self.config.get('esp_pmk').encode()
+        self.esp_lmk = self.config.get('esp_lmk').encode()
         if len(self.esp_pmk) != PMK_LMK_LENGTH or len(self.esp_lmk) != PMK_LMK_LENGTH:
             raise ValueError('LMK and PMK key must be 16Bytes long.')
 
@@ -105,9 +106,8 @@ class EspnowCore():
         """
         Blocking start of firmware core.
         """
-        print('\nStart ESPNOWCORE: node ID: {}\n'.format(self.id))
-        self._loop.create_task(self._run())
-        self._loop.run_forever()
+        print('\nStart EspNowCore: node ID: {}\n'.format(self.id))
+        self.loop.create_task(self._run())
 
     async def _run(self):
         """
@@ -116,12 +116,12 @@ class EspnowCore():
         await asyncio.sleep_ms(10)
         # Add broadcast peer
         self.esp.add_peer(self.BROADCAST)
-        self._loop.create_task(self.on_message())  # Receive messages
+        self.loop.create_task(self.on_message())  # Receive messages
 
         await self.added_to_mesh()
-        self._loop.create_task(self.advertise())  # Advertise itself
-        self._loop.create_task(self.check_neighbours())  # Watch for neighbours
-        self._loop.create_task(self.check_root_election())  # Watch for root election
+        self.loop.create_task(self.advertise())  # Advertise itself
+        self.loop.create_task(self.check_neighbours())  # Watch for neighbours
+        self.loop.create_task(self.check_root_election())  # Watch for root election
 
     async def added_to_mesh(self):
         """
@@ -136,7 +136,8 @@ class EspnowCore():
     def mps_button_pressed(self, irq):
         """
         Registered as IRQ for button.
-        Function to measure how long is button pressed. If between MPS_THRESHOLD_MS and 2*MPS_THRESHOLD_MS, we can exchange credentials.
+        Function to measure how long is button pressed.
+        If between MPS_THRESHOLD_MS and 2*MPS_THRESHOLD_MS, we can exchange credentials.
         """
         if irq.value() == 0:
             self.mps_start = time.ticks_ms()
@@ -144,9 +145,9 @@ class EspnowCore():
             self.mps_end = time.ticks_ms()
         self.dprint("[MPS] button presed for: ", time.ticks_diff(self.mps_end, self.mps_start))
         if MPS_THRESHOLD_MS < time.ticks_diff(self.mps_end, self.mps_start) < 2 * MPS_THRESHOLD_MS:
-            self._loop.create_task(self.allow_mps())
+            self.loop.create_task(self.allow_mps())
             if not self.has_creds():
-                self._loop.create_task(self.get_signing_creds())
+                self.loop.create_task(self.get_signing_creds())
         # asyncio.sleep(0.1)
         return
 
@@ -164,7 +165,7 @@ class EspnowCore():
         Allow only one task to be run at the time using Lock() even if button was pressed multiple times.
         """
         try:
-            self._loop.run_until_complete(self._mps_lock.acquire())
+            self.loop.run_until_complete(self._mps_lock.acquire())
             await asyncio.wait_for(self._obtain_signing_creds(), MPS_TIMER_S)
         except asyncio.TimeoutError:
             print('[MPS timeout!] Try again')
@@ -174,7 +175,7 @@ class EspnowCore():
     async def _obtain_signing_creds(self):
         """Try to retrieve credentials until you have them. Processing of messages happens in message.py file."""
         while not self.has_creds():
-            send_msg = self.send_creds(0, self.creds, peer=self.BROADCAST)
+            self.send_creds(0, self.creds, peer=self.BROADCAST)
             await asyncio.sleep(DEFAULT_S)
         print("\t[MPS credentials obtained] ")
         self._mps_lock.release()
@@ -232,8 +233,8 @@ class EspnowCore():
         node_id = adv.id
         if adv.tree_root_elected:
             self.seen_topology = True
-        self.neighbours[node_id] = [x[1] for x in sorted(adv.__dict__.items())] + [last_rx,
-                                                                                   last_tx]  # Update core.neigbours with new values.
+        # Update core.neighbours with new values.
+        self.neighbours[node_id] = [x[1] for x in sorted(adv.__dict__.items())] + [last_rx, last_tx]
 
     def on_advertise(self, adv: Advertise):
         """
@@ -327,7 +328,7 @@ class EspnowCore():
 
     def _send_wifi_creds(self, dst_node, essid, pwd):
         wifi_creds = SendWifiCreds(dst_node, len(self.ap_essid), essid, pwd, key=self.creds.decode()[:16])
-        signed_msg = self.send_msg(self.BROADCAST, wifi_creds)
+        self.send_msg(self.BROADCAST, wifi_creds)
 
     def on_send_wifi_creds(self, wifi_creds):
         """
@@ -340,7 +341,7 @@ class EspnowCore():
         print(f"[RECEIVED WIFI CREDS FROM PARENT] {self.sta_ssid} and {self.sta_password}")
         self.in_topology = True
 
-    def send_msg(self, peer=None, msg: "espmsg.class" = ""):
+    def send_msg(self, peer=None, msg: "messages.class" = ""):
         """
         Create message from class object and send it through espnow.
         """
@@ -381,7 +382,7 @@ class EspnowCore():
             while True:
                 buf = buf[next_msg:]
                 msg, digest, msg_len = self.get_message_with_digest(buf)
-                self._loop.create_task(self.process_message(msg, digest, msg_len))  # Process in another coro.
+                self.loop.create_task(self.process_message(msg, digest, msg_len))  # Process in another coro.
                 # Read only first two bytes and then read length of the packet, 
                 # cannot do because StreamReader.read(), read1() don't work, they read as much as can (whole packet).
                 # Workaround here.
@@ -435,7 +436,7 @@ class EspnowCore():
 
 
 def main():
-    c = EspnowCore()
+    c = EspNowCore()
 
     c.start()
 

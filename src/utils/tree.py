@@ -1,10 +1,11 @@
 # coding=utf-8
-# (C) Copyright 2022 Jindrich Sestak (xsesta05)
+# (C) Copyright 2022 Jindřich Šestak (xsesta05)
 # Licenced under MIT.
 # Part of diploma thesis.
 # Content: File with tree representation of the mesh.
 
 import json
+
 
 class TreeNode(object):
     def __init__(self, data, parent):
@@ -21,9 +22,9 @@ class TreeNode(object):
     def get_routes(self):
         dic = {}
         for i in self.children:
-            descentants = [i.data]
-            descentants.extend(i.get_all())
-            for d in descentants:
+            descendants = [i.data]
+            descendants.extend(i.get_all())
+            for d in descendants:
                 dic[d] = i.data
         return dic
 
@@ -31,17 +32,18 @@ class TreeNode(object):
         al = []
         for i in self.children:
             al.append(i.data)
-            al.extend(i.get_all())  
+            al.extend(i.get_all())
         return al
 
     def __str__(self, level=0):
-        ret = "\t"*level+repr(self.data)+"\n"
+        ret = "\t" * level + repr(self.data) + "\n"
         for child in self.children:
-            ret += child.__str__(level+1)
+            ret += child.__str__(level + 1)
         return ret
 
     def pack(self):
         return {"node": str(self.data), "child": [child.pack() for child in self.children]}
+
 
 class Tree:
     def __init__(self):
@@ -53,7 +55,7 @@ class Tree:
     def pack(self):
         return self.root.pack()
 
-    def search(self, node_id, actual_node = None):
+    def search(self, node_id, actual_node=None):
         if actual_node is None:
             actual_node = self.root
         if actual_node is None or actual_node.data == node_id:
@@ -61,7 +63,7 @@ class Tree:
         for c in actual_node.children:
             if self.search(node_id, c):
                 return self.search(node_id, c)
-    
+
     def del_node(self, node_id):
         if not self.root:
             return False
@@ -81,6 +83,7 @@ def get_all_nodes(dict_var):
             for item in v:
                 yield from get_all_nodes(item)
 
+
 def json_to_tree(dict_var, tree, node):
     n = None
     for k, v in dict_var.items():
@@ -95,55 +98,56 @@ def json_to_tree(dict_var, tree, node):
             for item in v:
                 json_to_tree(item, tree, n)
 
+
 def main():
-    tmp = {"node" : "3c:71:bb:e4:8b:89",
-                      "child" :
-                      [
-                         {"node" : "3c:71:bb:e4:8b:a1",
-                          "child":
-                          [
-                              {
-                                  "node": "3c:71:bb:e4:8b:b9",
-                                  "child": [
-                                      {"node" : "3c:71:bb:e4:8b:a2",
-                                        "child":[]
-                                        }
-                                  ]
-                              },
-                              
-                               {
-                                  "node": "3c:71:bb:e4:8b:11",
-                                  "child": [
-                                      {"node" : "3c:71:bb:e4:8b:42",
-                                        "child":[]
-                                        }
-                                  ]
-                              }
-                          ]
-                          },
-                         {
-                                  "node": "3c:71:bb:e4:8b:d5",
-                                  "child": [
-                                      {"node" : "3c:71:bb:e4:8b:d6",
-                                        "child":[]
-                                        }
-                                  ]
-                              },
-                      ]
-            }
-    
+    tmp = {"node": "3c:71:bb:e4:8b:89",
+           "child":
+               [
+                   {"node": "3c:71:bb:e4:8b:a1",
+                    "child":
+                        [
+                            {
+                                "node": "3c:71:bb:e4:8b:b9",
+                                "child": [
+                                    {"node": "3c:71:bb:e4:8b:a2",
+                                     "child": []
+                                     }
+                                ]
+                            },
+
+                            {
+                                "node": "3c:71:bb:e4:8b:11",
+                                "child": [
+                                    {"node": "3c:71:bb:e4:8b:42",
+                                     "child": []
+                                     }
+                                ]
+                            }
+                        ]
+                    },
+                   {
+                       "node": "3c:71:bb:e4:8b:d5",
+                       "child": [
+                           {"node": "3c:71:bb:e4:8b:d6",
+                            "child": []
+                            }
+                       ]
+                   },
+               ]
+           }
+
     all_nodes = get_all_nodes(tmp)
     # for i in all_nodes:
     #     print(i)
     tree = Tree()
-    all_nodes = json_to_tree(tmp, tree, None)
+    json_to_tree(tmp, tree, None)
     print(" TREE: ", tree)
     # print(tree.root._get_descendants())
     # print(tree.root.get_routes())
     print(tree.root.get_all())
     # for i in get_all_nodes(tree.pack()):
     #     print(i)
+
+
 if __name__ == "__main__":
     main()
-
-

@@ -1,10 +1,11 @@
 # coding=utf-8
-# (C) Copyright 2022 Jindrich Sestak (xsesta05)
+# (C) Copyright 2022 Jindřich Šestak (xsesta05)
 # Licenced under MIT.
 # Part of diploma thesis.
 # Content: Classes for network and esp-now interaction.
 
 import gc
+
 try:
     import uasyncio as asyncio
     from uasyncio import StreamReader
@@ -16,6 +17,8 @@ except ImportError:
 gc.collect()
 
 DEBUG = False
+
+
 def dprint(*args):
     if DEBUG:
         print(*args)
@@ -24,7 +27,7 @@ def dprint(*args):
 class Net:
     def __init__(self, mode):
         self.mode = mode
-        self.wlan = network.WLAN(self.mode) # Create an interface
+        self.wlan = network.WLAN(self.mode)  # Create an interface
         self.wlan.active(True)
         self.wlan.config(channel=1)
 
@@ -38,12 +41,12 @@ class Net:
         return self.wlan.ifconfig()
 
     def config(self, *args, **kwargs):
-        dprint("This is runned")
+        dprint("This is run")
         return self.wlan.config(*args, **kwargs)
 
     async def do_connect(self, ssid, password=""):
         if self.mode == network.AP_IF:
-            dprint("AP_mode " + ssid + " " + password )
+            dprint("AP_mode " + ssid + " " + password)
             await self.ap_wifi(ssid, password)
         else:
             dprint("STA_mode" + ssid + " " + password)
@@ -61,14 +64,14 @@ class Net:
 
     async def ap_wifi(self, ssid, password=""):
         wlan = self.wlan
-        wlan.config(essid=ssid, password=password) # set the ESSID of the access point
-        while wlan.active() == False:
+        wlan.config(essid=ssid, password=password)  # set the ESSID of the access point
+        while not wlan.active():
             await asyncio.sleep_ms(10)
         dprint("Connected AP_IF")
         dprint(wlan.ifconfig())
         return wlan
 
-        
+
 class ESP:
     def __init__(self):
         self.esp = espnow.ESPNow()
@@ -97,7 +100,7 @@ class ESP:
             else:
                 raise e
 
-    def config(self,*args):
+    def config(self, *args):
         return self.esp.config(*args)
 
     def send(self, peer=None, msg=""):
