@@ -7,6 +7,14 @@
 import json
 
 
+def get_level(node):
+    i = 0
+    while node.parent:
+        i += 1
+        node = node.parent
+    return i
+
+
 class TreeNode(object):
     def __init__(self, data, parent):
         self.data = data
@@ -141,10 +149,11 @@ def main():
     #     print(i)
     tree = Tree()
     json_to_tree(tmp, tree, None)
-    print(" TREE: ", tree)
+    print(" TREE: \n", tree)
     # print(tree.root._get_descendants())
     # print(tree.root.get_routes())
     print(tree.root.get_all())
+    print(get_level(tree.search("3c:71:bb:e4:8b:42")))
     # for i in get_all_nodes(tree.pack()):
     #     print(i)
 

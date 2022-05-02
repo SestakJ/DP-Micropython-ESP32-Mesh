@@ -14,9 +14,11 @@ gc.collect()
 from src.espnowcore import EspNowCore, CONFIG_FILE
 
 gc.collect()
-from src.utils.tree import Tree, TreeNode, json_to_tree
+from src.utils.tree import Tree, TreeNode, json_to_tree, get_level
 
 gc.collect()
+
+from src.utils.oled_display import SSD1306_SoftI2C
 
 import uasyncio as asyncio
 import json
@@ -105,6 +107,21 @@ class WifiCore:
         await self.connect_to_parent()
 
         self.loop.create_task(self.start_parenting_server())
+        self.loop.create_task(self.oled_info())
+
+    async def oled_info(self):# TODO
+        SoftI2C = machine.SoftI2C(scl=machine.Pin(23), sda=machine.Pin(18))
+        oled_width = 128
+        oled_height = 32
+        oled = SSD1306_SoftI2C(oled_width, oled_height, SoftI2C)
+        while True:
+            oled.text(f"ID:{self.id}", 0, 0)
+            oled.text(f"Par:{self.parent}", 0, 10)
+            if self.tree_topology:
+                oled.text(f"Depth {get_level(self.tree_topology.search(self.id))}", 0, 20)
+            oled.show()
+            await asyncio.sleep(5)
+            oled.fill(0)
 
     async def connect_to_parent(self):
         """
@@ -156,7 +173,6 @@ class WifiCore:
         try:
             await self.in_tree_topology()  # Either root node has created topology or must wait for parent to send topology.
             await asyncio.start_server(self.listen_to_children, '0.0.0.0', SERVER_PORT)
-            self.loop.create_task(self.send_topology_propagate(msg=["hello to child From ROOTOOOOT", 195]))
             self.loop.create_task(self.claim_children())
         except Exception as e:
             print("[Start Server] error: ", e)
@@ -173,6 +189,7 @@ class WifiCore:
         """
         Must update tree topology first. The topology has to be received earlier from its parent.
         Add new node and inform root about topology change.
+        Create task to send periodic update to each new child.
         """
         mac = await self.register_mac(reader)  # Register peer with mac address.
         self.children_writers[mac] = (writer, writer.get_extra_info('peername'))
@@ -181,31 +198,25 @@ class WifiCore:
         self.tree_topology.search(self.id).add_child(new_child)
         print("[Receive] child added: ", mac, writer.get_extra_info('peername'))
         await self.topology_changed(self.tree_topology.root.data, self.parent_writer)
-        self.dprint("[Receive new child] treee changed ", self.tree_topology.pack())
-
+        self.loop.create_task(self.topology_propagate(mac, writer)) # Send topology to each child
+        self.dprint("[Receive new child] tree changed ", self.tree_topology.pack())
         self.loop.create_task(self.on_message(reader, mac))
 
-    async def send_topology_propagate(self, msg):
-        """ Periodically propagate tree topology to children nodes."""
-        msg = TopologyPropagate(self.id, "ffffffffffff", None)
-        while True:
+    async def topology_propagate(self, child_mac, writer):
+        """ Periodically propagate tree topology to child node."""
+        msg = TopologyPropagate(self.id, child_mac, None)
+        tree = self.tree_topology
+        tree_pack = self.tree_topology.pack
+        all_children = self.children_writers
+        while child_mac in all_children:
             msg.packet["msg"] = self.tree_topology.pack() if self.tree_topology else None
-            self.loop.create_task(self.send_to_children_once(msg))
+            self.loop.create_task(self.send_msg(child_mac, writer, msg))
             await asyncio.sleep(DEFAULT_S)
-
-    async def send_to_children_once(self, msg):
-        self.dprint("[SEND] to children")
-        for destination, writers in self.children_writers.items():  # writers is a tuple(stream_writer, tuple(IP, port))
-            msg.packet["dst"] = destination
-            self.loop.create_task(self.send_msg(destination, writers[0], msg))
 
     async def claim_children(self):
         """
         Claim child nodes while there are some nodes present in mesh but not in the tree topology.
         """
-        tree = None
-        tree_nodes = []
-        neighbour_nodes = []
         while True:
             neighbour_nodes = list(dict(filter(lambda elem: elem[1][4] == 0, self.core.neighbours.items())).keys())
             tree_nodes = []
@@ -263,10 +274,10 @@ class WifiCore:
         """
         Decide what to do with messages, eventually just resend them further into the mesh.
         """
-        print("[Processed msg] ", msg)
+        print(f"[Processed msg] from: {src_mac} and MSG {msg}")
         # self.dprint("[Processed msg] ", msg)
-
         js = json.loads(msg)
+        print(f'JS.dst {js["dst"]} == {self.id} ID')
         if js["dst"] == self.id:
             obj = await unpack_wifimessage(msg, self)
         elif js["dst"] == "ffffffffffff":  # Message destined to everyone. Process and resend.
@@ -328,7 +339,6 @@ class WifiCore:
             return True
         else:
             return False
-
 
     async def send_to_nodes(self, msg, nodes=None):
         """ Send to directly connected nodes. Useful for broadcast messages and for application.  """
