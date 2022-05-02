@@ -42,6 +42,11 @@ def str_to_mac(s: str):
     return unhexlify(s)
 
 
+def lower_mac_by_one(mac: str):
+    lower_by_one = int(mac, 16)-1
+    return hex(lower_by_one)[2:]
+
+
 async def mem_info():
     while True:
         print(f"Allocated memory:{gc.mem_alloc()} free memory: {gc.mem_free()}")
@@ -49,7 +54,7 @@ async def mem_info():
 
 
 class WifiCore:
-    DEBUG = False
+    DEBUG = True
 
     def __init__(self, app: "BlinkApp"):
         self.app = app
@@ -83,10 +88,10 @@ class WifiCore:
         Blocking start of firmware core.
         """
         print(f"\nStart WifiCore: node ID: {self.id}")
-        self.core.start()  # Run ESPNOW core.
-        self.loop.create_task(mem_info())
-        self.loop.create_task(self._run())
         try:
+            self.core.start()  # Run ESPNOW core.
+            self.loop.create_task(mem_info())
+            self.loop.create_task(self._run())
             self.loop.run_forever()
         except Exception as e:  # Every except raises exception meaning that the task is broken, reset whole device
             asyncio.run(self.close_all())
@@ -239,24 +244,28 @@ class WifiCore:
 
     async def on_message(self, reader, mac):
         """
-        Wait for messages. Light weight function to not block recv process. Further processing in another coroutine.
+        Wait for messages. Lightweight function to not block recv process. Further, processing in another coroutine.
         """
         try:
             while True:
                 res = await reader.readline()
+                if res == b'':  # Connection closed by host, clean up. Maybe hard reset.
+                    print("[Receive] conn is dead")
+                    return
                 self.loop.create_task(
                     self.process_message(res, mac))  # Create task so this function is as fast as possible.
-                if res == b'':  # Connection closed by host, clean up. Maybe hard reset.
-                    self.dprint("[Receive] conn is dead")
-                    return
-        except Exception as e:
+        except Exception as e: # Connection closed by Parent node, clean up. Maybe hard reset
             self.dprint("[Receive] x conn is prob dead, stop listening. Error: ", e)
+            await self.close_connection(mac)
             return
 
     async def process_message(self, msg, src_mac):
         """
         Decide what to do with messages, eventually just resend them further into the mesh.
         """
+        print("[Processed msg] ", msg)
+        # self.dprint("[Processed msg] ", msg)
+
         js = json.loads(msg)
         if js["dst"] == self.id:
             obj = await unpack_wifimessage(msg, self)
@@ -271,7 +280,6 @@ class WifiCore:
             pass  # Message destined fo parent node from child (Beacon message, just for mac register, can drop).
         else:
             await self.resend(msg, js)
-        self.dprint("[Processed msg] ", msg)
 
     async def resend(self, msg, js):
         routing_table = self.routing_table
@@ -296,6 +304,9 @@ class WifiCore:
         """
         if not writer:
             return
+        if not self.is_peer_alive(mac):
+            await self.close_connection(mac)
+            return
         try:
             self.dprint("[SEND] to:", mac, " message: ", message)
             if type(message) is bytes or type(message) is str:  # Resending just string.
@@ -307,6 +318,17 @@ class WifiCore:
         except Exception as e:
             print("[Send] Whew! ", e, " occurred.")
             await self.close_connection(mac)
+
+    def is_peer_alive(self, mac):
+        """ Check if peer is connected based on ESP-NOW Advertisement neighbours database.
+            Mainly for deleting dead Child nodes. """
+        if not mac: # Blank MAC only on first send when they don't know MAC address of a peer.
+            return True
+        if str_to_mac(mac) in self.core.neighbours:
+            return True
+        else:
+            return False
+
 
     async def send_to_nodes(self, msg, nodes=None):
         """ Send to directly connected nodes. Useful for broadcast messages and for application.  """
@@ -375,25 +397,26 @@ class WifiCore:
             self.parent_reader = None
             del self.tree_topology  # Lost connection to parent so drop whole topology.
             self.tree_topology = None
-            # raise Error # TODO To trigger machine.reset()
+            print("[Close connection] Parent node dead, reset itself.")
+            machine.reset()
         elif mac in self.children_writers:
             writer, ip = self.children_writers[mac]
             del self.children_writers[mac]
             to_delete = self.tree_topology.search(mac)
             to_delete.parent.del_child(to_delete)  # Delete lost child from topology.
             await self.topology_changed(self.tree_topology.root.data, self.parent_writer)
-            print("[Close connection] treee changed \n", self.tree_topology)
+            print("[Close connection] to child, tree changed \n", self.tree_topology)
         if writer:
             writer.close()
             await writer.wait_closed()
 
     async def close_all(self):
         """ Clean up function."""
-        if self.parent_writer:
-            await self.close_connection(self.parent)
         for address, writer in self.children_writers.items():
             await self.close_connection(address)
         self.children_writers.clear()
+        if self.parent_writer:
+            await self.close_connection(self.parent)
         print("[Clean UP of sockets] Done")
 
 
