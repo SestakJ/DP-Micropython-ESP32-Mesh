@@ -202,6 +202,10 @@ class TopologyPropagate(WifiMSGBase):
     async def process(self, wificore: "wificore.WifiCore"):
         wificore.on_topology_propagate(self)
 
+    def __repr__(self):
+        return f'SRC: {self.packet["src"]} DST: {self.packet["dst"]} ' + \
+               f'flag: {self.packet["flag"]} MSG {self.packet["msg"]}'
+
 
 class TopologyChanged(WifiMSGBase):
     """
