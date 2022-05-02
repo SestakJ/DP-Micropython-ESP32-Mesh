@@ -8,6 +8,8 @@ import json
 
 
 def get_level(node):
+    if not node:
+        return 0
     i = 0
     while node.parent:
         i += 1

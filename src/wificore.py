@@ -45,7 +45,7 @@ def str_to_mac(s: str):
 
 
 def lower_mac_by_one(mac: str):
-    lower_by_one = int(mac, 16)-1
+    lower_by_one = int(mac, 16) - 1
     return hex(lower_by_one)[2:]
 
 
@@ -109,7 +109,7 @@ class WifiCore:
         self.loop.create_task(self.start_parenting_server())
         self.loop.create_task(self.oled_info())
 
-    async def oled_info(self):# TODO
+    async def oled_info(self):
         SoftI2C = machine.SoftI2C(scl=machine.Pin(23), sda=machine.Pin(18))
         oled_width = 128
         oled_height = 32
@@ -198,7 +198,7 @@ class WifiCore:
         self.tree_topology.search(self.id).add_child(new_child)
         print("[Receive] child added: ", mac, writer.get_extra_info('peername'))
         await self.topology_changed(self.tree_topology.root.data, self.parent_writer)
-        self.loop.create_task(self.topology_propagate(mac, writer)) # Send topology to each child
+        self.loop.create_task(self.topology_propagate(mac, writer))  # Send topology to each child
         self.dprint("[Receive new child] tree changed ", self.tree_topology.pack())
         self.loop.create_task(self.on_message(reader, mac))
 
@@ -265,7 +265,7 @@ class WifiCore:
                     return
                 self.loop.create_task(
                     self.process_message(res, mac))  # Create task so this function is as fast as possible.
-        except Exception as e: # Connection closed by Parent node, clean up. Maybe hard reset
+        except Exception as e:  # Connection closed by Parent node, clean up. Maybe hard reset
             self.dprint("[Receive] x conn is prob dead, stop listening. Error: ", e)
             await self.close_connection(mac)
             return
@@ -333,7 +333,7 @@ class WifiCore:
     def is_peer_alive(self, mac):
         """ Check if peer is connected based on ESP-NOW Advertisement neighbours database.
             Mainly for deleting dead Child nodes. """
-        if not mac: # Blank MAC only on first send when they don't know MAC address of a peer.
+        if not mac:  # Blank MAC only on first send when they don't know MAC address of a peer.
             return True
         if str_to_mac(mac) in self.core.neighbours:
             return True
@@ -381,22 +381,35 @@ class WifiCore:
 
     def on_topology_changed(self, topology: TopologyChanged):
         """
-        Called from message.py. Topology update is saved only on root node. Root node then propagates new topology.
+        Called from message.py. Topology update is saved on root node. Root node immediately propagates new topology.
         """
-        if not topology.packet["msg"] and not self.id != self.tree_topology.root.data:
+        if not topology.packet["msg"]: # and not self.id != self.tree_topology.root.data:
             return
         tree = Tree()
-        json_to_tree(topology.packet["msg"], tree, None)
-        old_node = self.tree_topology.search(topology.packet["src"])
-        old_node_parent = old_node.parent
-        new_node = tree.search(topology.packet["src"])
-        new_node.parent = old_node_parent
-        old_node_parent.del_child(old_node)
-        old_node_parent.add_child(new_node)
+        if not self.tree_topology: # If it is first packet form parent ever.
+            json_to_tree(topology.packet["msg"], tree, None)
+            self.tree_topology = tree
+        else:   # Already has a tree, must update him.
+            json_to_tree(topology.packet["msg"], tree, None)
+            old_node = self.tree_topology.search(topology.packet["src"])
+            old_node_parent = old_node.parent
+            new_node = tree.search(topology.packet["src"])
+            new_node.parent = old_node_parent
+            old_node_parent.del_child(old_node)
+            old_node_parent.add_child(new_node)
         print("[OnTopologyChanged]\n", self.tree_topology)
+        msg = TopologyChanged(self.id, "children", self.tree_topology.pack())
+        self.send_to_children_once(msg)
+
+    def send_to_children_once(self, msg):
+        self.dprint("[SEND to children once]")
+        for destination, writers in self.children_writers.items():  # writers is a tuple(stream_writer, tuple(IP, port))
+            msg.packet["dst"] = destination
+            self.loop.create_task(self.send_msg(destination, writers[0], msg))
 
     def update_routing_table(self):
-        self.routing_table = self.tree_topology.search(self.id).get_routes()
+        if self.tree_topology:
+            self.routing_table = self.tree_topology.search(self.id).get_routes()
 
     async def close_connection(self, mac):
         writer = None
