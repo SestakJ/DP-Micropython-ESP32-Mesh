@@ -281,11 +281,12 @@ class WifiCore:
                 res = await reader.readline()
                 if res == b'':  # Connection closed by host, clean up. Maybe hard reset.
                     print("[Receive] conn is dead")
+                    await self.close_connection(mac)
                     return
                 self.loop.create_task(
                     self.process_message(res, mac))  # Create task so this function is as fast as possible.
         except Exception as e:  # Connection closed by Parent node, clean up. Maybe hard reset
-            self.dprint("[Receive] x conn is prob dead, stop listening. Error: ", e)
+            print("[Receive] x conn is prob dead, stop listening. Error: ", e)
             await self.close_connection(mac)
             return
 
@@ -451,6 +452,7 @@ class WifiCore:
             del self.tree_topology  # Lost connection to parent so drop whole topology.
             self.tree_topology = None
             print("[Close connection] Parent node dead, reset itself.")
+            await self.close_all()
             machine.reset()
         elif mac in self.children_writers:
             writer, ip = self.children_writers[mac]
