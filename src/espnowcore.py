@@ -22,6 +22,7 @@ import struct
 import json
 import ucryptolib as cryptolib
 import math
+from ubinascii import unhexlify
 gc.collect()
 
 # Constants
@@ -296,8 +297,8 @@ class EspNowCore:
                 # TODO root election automatically
                 print(
                     f"[ROOT ELECTION] can start, neigh database ot changed for {NEIGHBOURS_NOT_CHANGED_FOR} seconds")
-                self.root = b'<q\xbf\xe4\x8b\x89'  # Used in WifiCore
-                if self.id == b'<q\xbf\xe4\x8b\x89':
+                self.root = unhexlify(self.config.get("root", "")) # Now assign root to simulate election.
+                if self.id == self.root:
                     self.in_topology = True
                     print(f"[ROOT ELECTION] finished, root is {self.root}")
                 break

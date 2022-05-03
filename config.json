@@ -5,7 +5,7 @@
     "esp_lmk" : "lkenobinobodyexp",
     "EspNowConfig" : true,
     "WifiConfig" :  true,
-    "root" : "",
-    "WIFI-Template" : ["SSID", "PASS", "CHANNEL"],
-    "WIFI" : [null, null, 6]
+    "root" : "3c71bfe48b89",
+    "WIFI-Template" : ["SSID", "PASS", "CHANNEL-NUMBER"],
+    "WIFI" : [null, null, 1]
 }
