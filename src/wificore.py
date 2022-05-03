@@ -78,7 +78,7 @@ class WifiCore:
         # Network interfaces.
         self.ap = Net(AP_IF, self.wifi_channel)  # Access point interface.
         self.sta = Net(STA_IF, self.wifi_channel)  # Station interface
-        self.core = EspNowCore(self.config, self.ap, self.sta) # EspNowCore with ESP-NOW module
+        self.core = EspNowCore(self.config, self.ap, self.sta)  # EspNowCore with ESP-NOW module
         self.loop = self.core.loop
         self.sta.wlan.disconnect()
         self.ap_essid = self.core.ap_essid
@@ -235,7 +235,7 @@ class WifiCore:
         """
         Claim child nodes while there are some nodes present in mesh but not in the tree topology.
         """
-        while True: # neighbour_nodes are nodes with ttl value 0 (elem[1][4] == 0)
+        while True:  # neighbour_nodes are nodes with ttl value 0 (elem[1][4] == 0)
             neighbour_nodes = list(dict(filter(lambda elem: elem[1][4] == 0, self.core.neighbours.items())).keys())
             tree_nodes = []
             tree = self.tree_topology
@@ -427,18 +427,18 @@ class WifiCore:
             self.on_topology_propagate(TopologyPropagate(topology.packet["src"], topology.packet["dst"], \
                                                          topology.packet["msg"]["new_topology"]))
         print("[OnTopologyChanged]\n", self.tree_topology)
-        msg = TopologyChanged(self.id, "children", {"changed_mac": topology.packet["msg"]["changed_mac"], \
-                                                    "new_topology": self.tree_topology.pack()})
-        self.send_to_children_once(msg)
+        self.send_to_children_once({"changed_mac": topology.packet["msg"]["changed_mac"], \
+                                    "new_topology": self.tree_topology.pack()})
 
-    def send_to_children_once(self, msg):
+    def send_to_children_once(self, topo_changed: dict):
         self.dprint("[SEND to children once]")
         for destination, writers in self.children_writers.items():  # writers is a tuple(stream_writer, tuple(IP, port))
-            msg.packet["dst"] = destination
+            msg = TopologyChanged(self.id, destination, topo_changed)
+            self.dprint(f"[SEND to children once] {destination} msg> {msg.packet}")
             self.loop.create_task(self.send_msg(destination, writers[0], msg))
 
     def update_routing_table(self):
-        if self.tree_topology:
+        if self.tree_topology.search(self.id):
             self.routing_table = self.tree_topology.search(self.id).get_routes()
 
     async def close_connection(self, mac):

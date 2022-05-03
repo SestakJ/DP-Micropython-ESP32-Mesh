@@ -289,15 +289,15 @@ class EspNowCore:
         """
         # while not self.neigh_last_changed:
         #     await asyncio.sleep(DEFAULT_S)
+        self.root = unhexlify(self.config.get("root", ""))  # Now assign root to simulate election.
         while True:
-            if self.seen_topology:  # If seen node in topology wait to be claimed.
+            if self.seen_topology and self.root != self.id:  # If seen node in topology wait to be claimed.
                 break
             elif time.ticks_diff(time.ticks_ms(),
                                  self.neigh_last_changed) > 5 * 1000:  # TODO NEIGHBOURS_NOT_CHANGED_FOR
                 # TODO root election automatically
                 print(
                     f"[ROOT ELECTION] can start, neigh database ot changed for {NEIGHBOURS_NOT_CHANGED_FOR} seconds")
-                self.root = unhexlify(self.config.get("root", "")) # Now assign root to simulate election.
                 if self.id == self.root:
                     self.in_topology = True
                     print(f"[ROOT ELECTION] finished, root is {self.root}")
