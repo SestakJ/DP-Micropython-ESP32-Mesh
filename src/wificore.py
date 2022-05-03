@@ -120,8 +120,10 @@ class WifiCore:
         # Node must open socket to parent node on station interface, then start its own AP interface. 
         # Otherwise socket would bind to AP interface.
         await self.connect_to_parent()
-
         self.loop.create_task(self.start_parenting_server())
+
+    def am_i_root(self):
+        return mac_to_str(self.core.root) == self.id
 
     async def oled_info(self):
         SoftI2C = machine.SoftI2C(scl=machine.Pin(23), sda=machine.Pin(18))
@@ -148,21 +150,23 @@ class WifiCore:
             await asyncio.sleep(DEFAULT_S)
         self.core.DEBUG = False  # Stop Debug messages in EspnowCore
         self.sta.wlan.disconnect()  # Disconnect from any previously connected Wi-Fi.
-        if self.core.sta_ssid:
+        if self.core.sta_ssid:  # Has ssid to parent WIFI which was received in EspNowCore.
             self.sta_ssid = self.core.sta_ssid
             self.sta_password = self.core.sta_password
             await self.sta.do_connect(self.sta_ssid, self.sta_password)
             print("[Connect to parent WiFi] Done")
-        else:  # Node is root node. Create Topology with itself on top.
+            self.parent_reader, self.parent_writer = await asyncio.open_connection(self.sta.ifconfig()[2], SERVER_PORT)
+            print("[Open connection to parent] Done")
+            self.loop.create_task(self.send_beacon_to_parent())
+            self.loop.create_task(self.listen_to_parent())
+        elif self.am_i_root():  # Node is root node. Create Topology with itself on top.
+            if self.wifi_ssid:  # If is wifi defined in config, connect to it.
+                await self.sta.do_connect(self.wifi_ssid, self.wifi_password)
+                print(f"[Connect to WiFi router {self.wifi_ssid}] Done")
             tree = Tree()
             tree.root = TreeNode(self.id, None)
             self.tree_topology = tree
             return
-
-        self.parent_reader, self.parent_writer = await asyncio.open_connection(self.sta.ifconfig()[2], SERVER_PORT)
-        print("[Open connection to parent] Done")
-        self.loop.create_task(self.send_beacon_to_parent())
-        self.loop.create_task(self.listen_to_parent())
 
     async def send_beacon_to_parent(self):
         """ Send blank messages to parent for him to save my MAC addr and beacon to him."""
@@ -231,7 +235,7 @@ class WifiCore:
         """
         Claim child nodes while there are some nodes present in mesh but not in the tree topology.
         """
-        while True:
+        while True: # neighbour_nodes are nodes with ttl value 0 (elem[1][4] == 0)
             neighbour_nodes = list(dict(filter(lambda elem: elem[1][4] == 0, self.core.neighbours.items())).keys())
             tree_nodes = []
             tree = self.tree_topology
@@ -241,8 +245,9 @@ class WifiCore:
                 tree_nodes = [str_to_mac(i) for i in tmp]
                 cnt_children = len(tree.search(self.id).children)
             possible_children = [mac for mac in neighbour_nodes if mac not in tree_nodes]
-            if cnt_children < CHILDREN_COUNT and possible_children:
-                self.core.claim_children([urandom.choice(possible_children)])
+            if possible_children:
+                for i in range(CHILDREN_COUNT - cnt_children):
+                    self.core.claim_children([urandom.choice(possible_children)])
             await asyncio.sleep(2 * DEFAULT_S)
 
     async def register_mac(self, reader):
@@ -256,7 +261,7 @@ class WifiCore:
                 msg = json.loads(res)
                 if msg["flag"] == WIFIMSG.APP:  # Ignore App meseges until register MAC.
                     continue
-                if res == b'':  # Connection closed by host, clean up. Maybe hard reset.
+                if res == b'':  # Connection closed by host, should not happen.
                     self.dprint("[Receive] conn is dead")
                     return
                 new_mac = msg["src"]

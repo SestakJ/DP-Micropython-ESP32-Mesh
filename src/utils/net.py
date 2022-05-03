@@ -16,7 +16,7 @@ except ImportError:
     from asyncio import StreamReader
 gc.collect()
 
-DEBUG = False
+DEBUG = True
 
 
 def dprint(*args):
@@ -41,15 +41,12 @@ class Net:
         return self.wlan.ifconfig()
 
     def config(self, *args, **kwargs):
-        dprint("This is run")
         return self.wlan.config(*args, **kwargs)
 
     async def do_connect(self, ssid, password=""):
         if self.mode == network.AP_IF:
-            dprint("AP_mode " + ssid + " " + password)
             await self.ap_wifi(ssid, password)
         else:
-            dprint("STA_mode" + ssid + " " + password)
             await self.sta_wifi(ssid, password)
 
     async def sta_wifi(self, ssid, password):
@@ -57,18 +54,17 @@ class Net:
         if not wlan.isconnected():
             wlan.connect(ssid, password)
             while not wlan.isconnected():
-                await asyncio.sleep_ms(10)
-        dprint("Connected STA_IF")
-        dprint(wlan.ifconfig())
+                dprint("Connecting to WIFI on STA_IF")
+                await asyncio.sleep_ms(100)
+        dprint("Connected on STA_IF")
         return wlan
 
     async def ap_wifi(self, ssid, password=""):
         wlan = self.wlan
         wlan.config(essid=ssid, password=password)  # set the ESSID of the access point
         while not wlan.active():
-            await asyncio.sleep_ms(10)
-        dprint("Connected AP_IF")
-        dprint(wlan.ifconfig())
+            await asyncio.sleep_ms(100)
+        dprint("Created AP")
         return wlan
 
 

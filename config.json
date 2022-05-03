@@ -1,5 +1,5 @@
 {
-    "credentials" : "hellotheregeneralkenobinobodye2",
+    "credentials" : "hellotheregeneralkenobinobodyex",
     "_credentials" : null,
     "esp_pmk" : "hellotheregenera",
     "esp_lmk" : "lkenobinobodyexp",
@@ -7,5 +7,5 @@
     "WifiConfig" :  true,
     "root" : "",
     "WIFI-Template" : ["SSID", "PASS", "CHANNEL"],
-    "WIFI" : ["FourMusketers_2.4GHz", "jetufajN69", 6]
+    "WIFI" : [null, null, 6]
 }
