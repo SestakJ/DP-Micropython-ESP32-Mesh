@@ -24,9 +24,6 @@ import ucryptolib as cryptolib
 import math
 gc.collect()
 
-# User defined constants.
-CONFIG_FILE = 'config.json'
-
 # Constants
 DEFAULT_S = const(5)
 MPS_THRESHOLD_MS = const(4250)  # Time how long button must be pressed to allow MPS in ms (cca 4-5s).
@@ -45,21 +42,19 @@ ESP-NOW Core class responsible for mesh operations.
 
 class EspNowCore:
     BROADCAST = b'\xff\xff\xff\xff\xff\xff'
-    DEBUG = True
 
-    def __init__(self):
-        with open(CONFIG_FILE) as f:
-            self.config = json.loads(f.read())
-        # Network and ESPNOW interfaces.
-        self.ap = Net(1)  # Access point interface.
-        self.sta = Net(0)  # Station interface
+    def __init__(self, config, ap, sta):
+        self.DEBUG = None
+        self.config = config
+        # Network and ESP-NOW interfaces.
+        self.ap = ap
+        self.sta = sta
         self.ap_essid = self.ap.wlan.config('essid')  # Should be multiple of 16, but will take care of.
         self.ap_password = id_generator(16)  # Must be multiple of 16
         self.sta_ssid = self.sta_password = None
         self.esp = ESP()
         self.creds = b'\x00'
         self._creds_msg_size = None
-
         # Node espnow mesh definitions.
         self.id = self.ap.wlan.config('mac')
         self.neighbours = {}
@@ -83,6 +78,7 @@ class EspNowCore:
         self.root = b''
 
     def get_config(self):
+        self.DEBUG = self.config.get("EspNowConfig", 0)
         creds = self.config.get('credentials')
         if creds is None:
             creds = CREDS_LENGTH * b'\x00'

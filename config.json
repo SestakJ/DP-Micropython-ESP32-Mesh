@@ -1,22 +1,11 @@
 {
-    "credentials" : "hellotheregeneralkenobinobodyex",
+    "credentials" : "hellotheregeneralkenobinobodye2",
     "_credentials" : null,
     "esp_pmk" : "hellotheregenera",
     "esp_lmk" : "lkenobinobodyexp",
+    "EspNowConfig" : true,
+    "WifiConfig" :  true,
     "root" : "",
-
-    "topology": {"node" : "3c:71:bb:e4:8b:89",
-                      "child" : 
-                      [
-                         {"node" : "3c:71:bb:e4:8b:a1",
-                          "child": 
-                          [
-                              {
-                                  "node": "3c:71:bb:e4:8b:b9",
-                                  "child": []  
-                              }
-                          ]
-                          }
-                      ]
-                      }
-  }
+    "WIFI-Template" : ["SSID", "PASS", "CHANNEL"],
+    "WIFI" : ["FourMusketers_2.4GHz", "jetufajN69", 6]
+}

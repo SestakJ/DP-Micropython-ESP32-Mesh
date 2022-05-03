@@ -7,11 +7,14 @@
 import gc
 
 gc.collect()
+from src.utils.net import Net
+
+gc.collect()
 from src.utils.messages import WIFI_PACKETS, TopologyPropagate, TopologyChanged, \
     pack_wifimessage, unpack_wifimessage, WIFIMSG
 
 gc.collect()
-from src.espnowcore import EspNowCore, CONFIG_FILE
+from src.espnowcore import EspNowCore
 
 gc.collect()
 from src.utils.tree import Tree, TreeNode, json_to_tree, get_level
@@ -23,7 +26,7 @@ from src.utils.oled_display import SSD1306_SoftI2C
 import uasyncio as asyncio
 import json
 from ubinascii import hexlify, unhexlify
-from network import AUTH_WPA_WPA2_PSK
+from network import AUTH_WPA_WPA2_PSK, STA_IF, AP_IF
 import urandom
 import machine
 
@@ -34,6 +37,9 @@ DEFAULT_S = const(7)
 BEACON_S = const(15)
 SERVER_PORT = const(1234)
 CHILDREN_COUNT = const(2)  # Number of maximum children for each node.
+
+# User defined file.
+CONFIG_FILE = 'config.json'
 
 
 def mac_to_str(mac: bytes):
@@ -56,17 +62,25 @@ async def mem_info():
 
 
 class WifiCore:
-    DEBUG = True
 
     def __init__(self, app: "BlinkApp"):
         self.app = app
-        self.core = EspNowCore()
-        self.loop = self.core.loop
+        with open(CONFIG_FILE) as f:
+            self.config = json.loads(f.read())
+        self.DEBUG = self.config.get("WifiConfig", 0)
+        self.wifi_ssid = self.wifi_password = None
+        self.wifi_channel = 1
+        wifi = self.config.get("WIFI", None)
+        if wifi:
+            self.wifi_ssid = wifi[0]
+            self.wifi_password = wifi[1]
+            self.wifi_channel = wifi[2]
         # Network interfaces.
-        self.ap = self.core.ap
-        self.sta = self.core.sta
+        self.ap = Net(AP_IF, self.wifi_channel)  # Access point interface.
+        self.sta = Net(STA_IF, self.wifi_channel)  # Station interface
+        self.core = EspNowCore(self.config, self.ap, self.sta) # EspNowCore with ESP-NOW module
+        self.loop = self.core.loop
         self.sta.wlan.disconnect()
-        self._config = self.core.config
         self.ap_essid = self.core.ap_essid
         self.ap_password = self.core.ap_password
         self.sta_ssid = self.sta_password = None
@@ -93,6 +107,7 @@ class WifiCore:
         try:
             self.core.start()  # Run ESPNOW core.
             self.loop.create_task(mem_info())
+            self.loop.create_task(self.oled_info())
             self.loop.create_task(self._run())
             self.loop.run_forever()
         except Exception as e:  # Every except raises exception meaning that the task is broken, reset whole device
@@ -107,7 +122,6 @@ class WifiCore:
         await self.connect_to_parent()
 
         self.loop.create_task(self.start_parenting_server())
-        self.loop.create_task(self.oled_info())
 
     async def oled_info(self):
         SoftI2C = machine.SoftI2C(scl=machine.Pin(23), sda=machine.Pin(18))
@@ -197,7 +211,7 @@ class WifiCore:
         new_child = TreeNode(mac, my_node)
         self.tree_topology.search(self.id).add_child(new_child)
         print("[Receive] child added: ", mac, writer.get_extra_info('peername'))
-        await self.topology_changed(self.tree_topology.root.data, self.parent_writer)
+        await self.topology_changed(self.tree_topology.root.data, self.parent_writer, mac)
         self.loop.create_task(self.topology_propagate(mac, writer))  # Send topology to each child
         self.dprint("[Receive new child] tree changed ", self.tree_topology.pack())
         self.loop.create_task(self.on_message(reader, mac))
@@ -373,32 +387,43 @@ class WifiCore:
             print("[OnTopologyPropagate]\n", self.tree_topology)
         self.update_routing_table()
 
-    async def topology_changed(self, node, writer):
+    async def topology_changed(self, node, writer, mac):
         # When new node connects or child node fails down inform just only root node.
-        msg = TopologyChanged(self.id, node, self.tree_topology.pack())  # Send Topology update.
+        msg = TopologyChanged(self.id, node, {"changed_mac": mac, \
+                                              "new_topology": self.tree_topology.pack()})  # Send Topology update.
         await self.send_msg(node, writer, msg)
         self.update_routing_table()
 
     def on_topology_changed(self, topology: TopologyChanged):
         """
-        Called from message.py. Topology update is saved on root node. Root node immediately propagates new topology.
+        Called from message.py. Topology update is saved on root node. Root node immediately sends new topology.
+        On intermediate parent node the message is processed as Topology Propagate. And immediately resends to his children.
+        This way is bubbles through all the tree.
         """
-        if not topology.packet["msg"]: # and not self.id != self.tree_topology.root.data:
+        if not topology.packet["msg"]:  # and not self.id != self.tree_topology.root.data:
             return
         tree = Tree()
-        if not self.tree_topology: # If it is first packet form parent ever.
-            json_to_tree(topology.packet["msg"], tree, None)
+        if not self.tree_topology:  # If it is first packet form parent ever.
+            print("[OnTopologyChanged] First topo for node \n")
+            json_to_tree(topology.packet["msg"]["new_topology"], tree, None)
             self.tree_topology = tree
-        else:   # Already has a tree, must update him.
-            json_to_tree(topology.packet["msg"], tree, None)
-            old_node = self.tree_topology.search(topology.packet["src"])
-            old_node_parent = old_node.parent
-            new_node = tree.search(topology.packet["src"])
-            new_node.parent = old_node_parent
-            old_node_parent.del_child(old_node)
-            old_node_parent.add_child(new_node)
+        elif self.id == self.tree_topology.root.data:  # Node is a root and updates tree. Already has a tree, must update him.
+            print("[OnTopologyChanged] Root node updates \n")
+            json_to_tree(topology.packet["msg"]["new_topology"], tree, None)
+            origin_node = self.tree_topology.search(topology.packet["src"])
+            if self.tree_topology.search(topology.packet["msg"]["changed_mac"]):  # It is in tree, so node is dead.
+                origin_node.del_child(self.tree_topology.search(topology.packet["msg"]["changed_mac"]))
+            else:  # It is not in tree, so new node was added.
+                new_node = tree.search(topology.packet["msg"]["changed_mac"])
+                origin_node.add_child(new_node)
+        else:  # Intermediate parents updates whole tree as Topology Propagation
+            print(
+                "[OnTopologyChanged] Intermediate parent just drop tree and create new one in On topology propagate\n")
+            self.on_topology_propagate(TopologyPropagate(topology.packet["src"], topology.packet["dst"], \
+                                                         topology.packet["msg"]["new_topology"]))
         print("[OnTopologyChanged]\n", self.tree_topology)
-        msg = TopologyChanged(self.id, "children", self.tree_topology.pack())
+        msg = TopologyChanged(self.id, "children", {"changed_mac": topology.packet["msg"]["changed_mac"], \
+                                                    "new_topology": self.tree_topology.pack()})
         self.send_to_children_once(msg)
 
     def send_to_children_once(self, msg):
@@ -427,7 +452,7 @@ class WifiCore:
             del self.children_writers[mac]
             to_delete = self.tree_topology.search(mac)
             to_delete.parent.del_child(to_delete)  # Delete lost child from topology.
-            await self.topology_changed(self.tree_topology.root.data, self.parent_writer)
+            await self.topology_changed(self.tree_topology.root.data, self.parent_writer, mac)
             print("[Close connection] to child, tree changed \n", self.tree_topology)
         if writer:
             writer.close()

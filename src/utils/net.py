@@ -25,11 +25,11 @@ def dprint(*args):
 
 
 class Net:
-    def __init__(self, mode):
+    def __init__(self, mode, channel=1):
         self.mode = mode
         self.wlan = network.WLAN(self.mode)  # Create an interface
         self.wlan.active(True)
-        self.wlan.config(channel=1)
+        self.wlan.config(channel=channel)
 
     def isconnected(self):
         return self.wlan.isconnected()
