@@ -1,11 +1,12 @@
 {
     "credentials" : "hellotheregeneralkenobinobodyex",
-    "_credentials" : null,
-    "esp_pmk" : "hellotheregenera",
-    "esp_lmk" : "lkenobinobodyexp",
     "EspNowConfig" : true,
     "WifiConfig" :  true,
     "root" : "3c71bfe48b89",
     "WIFI-Template" : ["SSID", "PASS", "CHANNEL-NUMBER"],
-    "WIFI" : [null, null, 1]
+    "WIFI" : [null, null, 1],
+
+
+    "esp_pmk" : "hellotheregenera",
+    "esp_lmk" : "lkenobinobodyexp",
 }
