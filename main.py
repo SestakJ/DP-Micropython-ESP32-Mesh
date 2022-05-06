@@ -1,5 +1,5 @@
 # coding=utf-8
-# (C) Copyright 2022 Jindrich Sestak (xsesta05)
+# (C) Copyright 2022 Jindřich Šestak (xsesta05)
 # Licenced under MIT.
 # Part of diploma thesis.
 import machine
