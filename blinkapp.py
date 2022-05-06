@@ -39,11 +39,12 @@ class BlinkApp:
 
     def start(self):
         """
-        Blocking start of firmware core.
+        Blocking start of firmware application.
         """
         print(f"\nStart: Application Blink with colour {self.colour}")
         try:
-            self._loop.create_task(self.core.start())  # Run Wifi core.
+            self.core.start()  # Run Wifi core.
+            self._loop.run_forever()
         except Exception as e:  # Every except raises exception meaning that the task is broken, reset whole device
             print(f"Error in BlinkApp {e}")
             # machine.reset()  # TODO. It solves the problem with ERROR 104 ECONNRESET after Soft Reset on child.
@@ -70,6 +71,7 @@ class BlinkApp:
             self.led[0] = colour
             self.led.write()
             print(f"BLINK-APP RECEIVED - blink with colour {colour}")
+            print(f"Processed in time : {time.time_ns()}")
 
     def btn_pressed(self, irq):
         """

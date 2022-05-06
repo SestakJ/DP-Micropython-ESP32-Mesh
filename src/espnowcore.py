@@ -237,7 +237,7 @@ class EspNowCore:
         """
         Called from message.py.
         Update database of neighbours. On first encounter of new node immediately resend advertisement.
-        Record in database is dict {node: (node, cnt, rssi, last_rx, last_tx)}
+        Record in database is dict {node: (node, cnt, rssi, rootFlag, ttl, last_rx, last_tx)}
         """
         record = self.neighbours.get(adv.id, None)
         last_tx = 0
@@ -289,12 +289,13 @@ class EspNowCore:
         """
         # while not self.neigh_last_changed:
         #     await asyncio.sleep(DEFAULT_S)
-        self.root = unhexlify(self.config.get("root", ""))  # Now assign root to simulate election.
+        root = unhexlify(self.config.get("root", ""))
         while True:
-            if self.seen_topology and self.root != self.id:  # If seen node in topology wait to be claimed.
+            if self.seen_topology and root != self.id:  # If seen node in topology wait to be claimed.
                 break
             elif time.ticks_diff(time.ticks_ms(),
                                  self.neigh_last_changed) > 5 * 1000:  # TODO NEIGHBOURS_NOT_CHANGED_FOR
+                self.root = root  # Now assign root to simulate election.
                 # TODO root election automatically
                 print(
                     f"[ROOT ELECTION] can start, neigh database ot changed for {NEIGHBOURS_NOT_CHANGED_FOR} seconds")
@@ -320,7 +321,7 @@ class EspNowCore:
         Trigerred from upper level (WifiCore) class. Claim children from list. 
         """
         print(f"[Claim children] {children} in espMSG SSID: {self.ap_essid} PASSWORD: {self.ap_password}")
-        for mac in children:  # TODO only for some nodes with good RSSI.
+        for mac in children:
             self._send_wifi_creds(mac, self.aes_encrypt(self.ap_essid), self.aes_encrypt(self.ap_password))
 
     def _send_wifi_creds(self, dst_node, essid, pwd):
@@ -376,7 +377,7 @@ class EspNowCore:
         while True:
             buf = await self.esp.read(250)  # HAS to be 250 otherwise digest is blank, don't know why.
             next_msg = 0
-            while True:
+            while True: # To go through possible multiple messages in one buffer. Can happen.
                 buf = buf[next_msg:]
                 msg, digest, msg_len = self.get_message_with_digest(buf)
                 self.loop.create_task(self.process_message(msg, digest, msg_len))  # Process in another coro.

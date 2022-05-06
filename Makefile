@@ -5,9 +5,9 @@ NAME=xsesta05
 # port default value is 0.
 # To chnage value execute "make port=1".
 
-all: 0
+all: install-mesh
 
-0:
+install-mesh:
 	-$(CMD) -p /dev/ttyUSB$(port) rmdir src
 	-$(CMD) -p /dev/ttyUSB$(port) mkdir src
 	-$(CMD) -p /dev/ttyUSB$(port) mkdir src/utils
@@ -22,18 +22,23 @@ all: 0
 	$(CMD) -p /dev/ttyUSB$(port) put src/utils/pins.py ./src/utils/pins.py
 	$(CMD) -p /dev/ttyUSB$(port) put src/utils/net.py ./src/utils/net.py
 	$(CMD) -p /dev/ttyUSB$(port) put src/utils/hmac.py ./src/utils/hmac.py
+	$(CMD) -p /dev/ttyUSB$(port) put src/utils/oled_display.py ./src/utils/oled_display.py
 
+update:
+	$(CMD) -p /dev/ttyUSB$(port) put blinkapp.py blinkapp.py
+	$(CMD) -p /dev/ttyUSB$(port) put src/espnowcore.py ./src/espnowcore.py
+	$(CMD) -p /dev/ttyUSB$(port) put src/wificore.py ./src/wificore.py
 
-ap:
+ap-test:
 	$(CMD) -p /dev/ttyUSB$(port) put testing/ap/boot.py
 	$(CMD) -p /dev/ttyUSB$(port) put testing/ap/main.py
 
-sta:
+sta-test:
 	$(CMD) -p /dev/ttyUSB$(port) put testing/sta/boot.py
 	$(CMD) -p /dev/ttyUSB$(port) put testing/sta/main.py
 
 pack:
-	zip $(NAME).zip -r src/ Makefile README.md blinkapp.py boot.py main.py
+	zip $(NAME).zip -r src/ Makefile README.md blinkapp.py boot.py main.py micropython_616/
 
 clean: 
 	-rm $(NAME).zip

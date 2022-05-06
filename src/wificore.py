@@ -109,7 +109,6 @@ class WifiCore:
             self.loop.create_task(mem_info())
             self.loop.create_task(self.oled_info())
             self.loop.create_task(self._run())
-            self.loop.run_forever()
         except Exception as e:  # Every except raises exception meaning that the task is broken, reset whole device
             asyncio.run(self.close_all())
             print(f"Error in WifiCore {e}")
@@ -136,7 +135,7 @@ class WifiCore:
             if self.tree_topology:
                 oled.text(f"Depth {get_level(self.tree_topology.search(self.id))}", 0, 20)
             oled.show()
-            await asyncio.sleep(5)
+            await asyncio.sleep(3)
             oled.fill(0)
 
     async def connect_to_parent(self):
@@ -361,7 +360,7 @@ class WifiCore:
             return False
 
     async def send_to_nodes(self, msg, nodes=None):
-        """ Send to directly connected nodes. Useful for broadcast messages and for application.  """
+        """ Send to directly connected nodes. Used for broadcast messages and for application.  """
         if nodes is None:
             nodes = [self.parent] + list(self.children_writers.keys())
         for node in nodes:
@@ -369,7 +368,7 @@ class WifiCore:
             await self.send_msg(node, writer, msg)
 
     async def send_to_all(self, msg):
-        """ Send to everyone in the mesh. Can be also used by application. """
+        """ Send to every node in the mesh. Can be also used by application, But resend() adds overhead. """
         nodes = self.tree_topology.root.get_all() + [self.tree_topology.root.data]
         nodes.remove(self.id)
         for node in nodes:
