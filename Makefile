@@ -1,3 +1,8 @@
+# coding=utf-8
+# (C) Copyright 2022 Jindřich Šesták (xsesta05)
+# Licenced under Apache License.
+# Makefile
+
 CMD=ampy
 port=0
 NAME=xsesta05
