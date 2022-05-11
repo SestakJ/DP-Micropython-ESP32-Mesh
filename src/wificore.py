@@ -247,7 +247,7 @@ class WifiCore:
             if possible_children:
                 for i in range(CHILDREN_COUNT - cnt_children):
                     self.core.claim_children([urandom.choice(possible_children)])
-            await asyncio.sleep(2 * DEFAULT_S)
+            await asyncio.sleep(DEFAULT_S)
 
     async def register_mac(self, reader):
         """
@@ -448,17 +448,20 @@ class WifiCore:
             self.parent = None
             self.parent_writer = None
             self.parent_reader = None
-            del self.tree_topology  # Lost connection to parent so drop whole topology.
-            self.tree_topology = None
             print("[Close connection] Parent node dead, reset itself.")
             await self.close_all()
             machine.reset()
+            del self.tree_topology  # Lost connection to parent so drop whole topology.
+            self.tree_topology = None
         elif mac in self.children_writers:
             writer, ip = self.children_writers[mac]
             del self.children_writers[mac]
-            to_delete = self.tree_topology.search(mac)
-            to_delete.parent.del_child(to_delete)  # Delete lost child from topology.
-            await self.topology_changed(self.tree_topology.root.data, self.parent_writer, mac)
+            try:
+                to_delete = self.tree_topology.search(mac)
+                to_delete.parent.del_child(to_delete)  # Delete lost child from topology.
+                await self.topology_changed(self.tree_topology.root.data, self.parent_writer, mac)
+            except Exception as e:
+                print(f"[Close connection] to child - Error:{e}")
             print("[Close connection] to child, tree changed \n", self.tree_topology)
         if writer:
             writer.close()
