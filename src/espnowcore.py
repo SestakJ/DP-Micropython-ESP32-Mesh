@@ -31,7 +31,7 @@ MPS_THRESHOLD_MS = const(4250)  # Time how long button must be pressed to allow 
 MPS_TIMER_S = const(45)  # Allow excahnge of credentials for this time, in seconds.
 ADVERTISE_S = const(5)  # Advertise every once this timer expires, in seconds.
 ADVERTISE_OTHERS_MS = const(13000)
-NEIGHBOURS_NOT_CHANGED_FOR = const(29)
+NEIGHBOURS_NOT_CHANGED_FOR_MS = const(29000)
 DIGEST_SIZE = const(32)  # Size of HMAC(SHA256) signing code. Equals to Size of Creds for HMAC(SHA256).
 CREDS_LENGTH = const(32)
 PMK_LMK_LENGTH = const(16)
@@ -294,11 +294,11 @@ class EspNowCore:
             if self.seen_topology and root != self.id:  # If seen node in topology wait to be claimed.
                 break
             elif time.ticks_diff(time.ticks_ms(),
-                                 self.neigh_last_changed) > 5 * 1000:  # TODO NEIGHBOURS_NOT_CHANGED_FOR
+                                 self.neigh_last_changed) > NEIGHBOURS_NOT_CHANGED_FOR_MS:
                 self.root = root  # Now assign root to simulate election.
                 # TODO root election automatically
                 print(
-                    f"[ROOT ELECTION] can start, neigh database ot changed for {NEIGHBOURS_NOT_CHANGED_FOR} seconds")
+                    f"[ROOT ELECTION] can start, neigh database ot changed for {NEIGHBOURS_NOT_CHANGED_FOR_MS} seconds")
                 if self.id == self.root:
                     self.in_topology = True
                     print(f"[ROOT ELECTION] finished, root is {self.root}")
@@ -372,8 +372,6 @@ class EspNowCore:
         """
         Wait for messages. Light weight function to not block recv process. Further processing in another coroutine.
         """
-        # buf = bytearray(250)
-        # readinto(buf)
         while True:
             buf = await self.esp.read(250)  # HAS to be 250 otherwise digest is blank, don't know why.
             next_msg = 0
@@ -427,10 +425,6 @@ class EspNowCore:
             wlans.clear()
         # self._wlan_scan_lock.release()
         # self._wlan_scan_lock.set()
-
-    # TODO Root node after 2,5*ADV time no new node appeared start election process. Only the root node will send claim.
-
-    # TODO Root node confirmation - if multiple roots, select the one with lowes MAC for example.
 
 
 def main():
