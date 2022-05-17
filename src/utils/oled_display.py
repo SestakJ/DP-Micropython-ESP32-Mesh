@@ -1,4 +1,7 @@
 # Source: https://how2electronics.com/micropython-interfacing-oled-display-esp32/
+# Admin. (Mar 2021.). MicroPython: Interfacing 0.96” OLED display with ESP32.
+#                     [Computer software]. https://how2electronics.com/micropython-interfacing-oled-display-esp32/
+
 from micropython import const
 import time
 import framebuf

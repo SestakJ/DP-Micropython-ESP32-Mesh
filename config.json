@@ -1,7 +1,7 @@
 {
     "credentials" : "hellotheregeneralkenobinobodyex",
-    "EspNowConfig" : true,
-    "WifiConfig" :  true,
+    "EspNowConfig" : false,
+    "WifiConfig" :  false,
     "root" : "3c71bfe48b89",
     "WIFI-Template" : ["SSID", "PASS", "CHANNEL-NUMBER"],
     "WIFI" : [null, null, 1],

@@ -1,6 +1,6 @@
 # coding=utf-8
-# (C) Copyright 2022 Jindřich Šestak (xsesta05)
-# Licenced under MIT.
+# (C) Copyright 2022 Jindřich Šesták (xsesta05)
+# Licenced under Apache License.
 # Part of diploma thesis.
 # Content: Blink application demo.
 
@@ -34,8 +34,10 @@ class BlinkApp:
         self._loop = self.core.loop
         self.button = init_button(LEFT_BUTTON, self.btn_pressed)  # Register IRQ for MPS procedure.
         self.led = init_led()
-        self.colour = tuple(urandom.randint(0, 150) for _ in range(3))
+        self.colour = tuple(urandom.randint(0, 100) for _ in range(3))
         self.pressed_start = self.pressed_end = 0
+        self.led[0] = (0,0,0)
+        self.led.write()
 
     def start(self):
         """
@@ -47,7 +49,7 @@ class BlinkApp:
             self._loop.run_forever()
         except Exception as e:  # Every except raises exception meaning that the task is broken, reset whole device
             print(f"Error in BlinkApp {e}")
-            # machine.reset()  # TODO. It solves the problem with ERROR 104 ECONNRESET after Soft Reset on child.
+            machine.reset()  # When errors occurs, reset itself and run again.
 
     async def blink(self):
         """Send app message to blink. """
@@ -71,7 +73,6 @@ class BlinkApp:
             self.led[0] = colour
             self.led.write()
             print(f"BLINK-APP RECEIVED - blink with colour {colour}")
-            print(f"Processed in time : {time.time_ns()}")
 
     def btn_pressed(self, irq):
         """

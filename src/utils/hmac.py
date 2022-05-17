@@ -1,6 +1,9 @@
+# Source: https://github.com/dmazzella/ucrypto
+# Mazzella, D. (2021). Micropython package for doing fast elliptic curve cryptography, specifically digital signatures
+#                      [Computer software]. https://github.com/dmazzella/ucrypto
+
 """HMAC (Keyed-Hashing for Message Authentication) MicroPython module.
 Implements the HMAC algorithm as described by RFC 2104.
---origin: https://github.com/dmazzella/ucrypto
 """
 
 from binascii import hexlify

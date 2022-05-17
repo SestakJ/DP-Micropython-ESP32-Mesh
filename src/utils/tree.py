@@ -1,6 +1,6 @@
 # coding=utf-8
-# (C) Copyright 2022 Jindřich Šestak (xsesta05)
-# Licenced under MIT.
+# (C) Copyright 2022 Jindřich Šesták (xsesta05)
+# Licenced under Apache License.
 # Part of diploma thesis.
 # Content: File with tree representation of the mesh.
 
