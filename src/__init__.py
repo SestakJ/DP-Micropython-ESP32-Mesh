@@ -4,4 +4,4 @@
 # Part of diploma thesis.
 
 
-from src.wificore import WifiCore
+# from src.wificore import WifiCore

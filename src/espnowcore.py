@@ -194,11 +194,15 @@ class EspNowCore:
         wifies = []
         adv = Advertise(self.id, cntr, rssi, self.in_topology, 0)
         self.save_neighbour(adv, 0, 0)
+        wifi_ssid = None
+        wifi = self.config.get("WIFI", None)
+        if wifi:
+            wifi_ssid = wifi[0]
         # self._wlan_scan_lock.set()
         while True:
             # self._wlan_scan_lock.acquire() # Lock is for waiting for results in second thread of scanning.
             # await self._wlan_scan_lock.wait()
-            cntr, rssi = await self.get_cntr_rssi(wifies, b'FourMusketers_2.4GHz')
+            cntr, rssi = await self.get_cntr_rssi(wifies, wifi_ssid)
             adv.mesh_cntr = cntr
             adv.rssi = rssi
             adv.tree_root_elected = self.in_topology
@@ -215,7 +219,7 @@ class EspNowCore:
         """
         rssi = cntr = 0.0
         for record in wifies:
-            if record[0] == router_ssid:
+            if router_ssid and record[0] == router_ssid:
                 rssi = record[3]
             elif record[1] in self.neighbours:
                 if record[3] == 0:  # Division by zero error.
@@ -353,7 +357,7 @@ class EspNowCore:
         """
         Sign message with HMAC hash from sha256(by default) only if credentials are available.
         """
-        mac = HMAC(self.creds, msg)
+        mac = HMAC(self.creds, msg)     # This consumes 10KB of memory.
         digest_hash = mac.digest()
         return digest_hash
 
@@ -366,7 +370,8 @@ class EspNowCore:
         my_digest = self.sign_message(msg)
         if len(my_digest) != len(msg_digest):
             return False
-        return compare_digest(my_digest, bytes(msg_digest, 'utf-8'))
+        return my_digest == msg_digest
+        # return compare_digest(my_digest, bytes(msg_digest, 'utf-8')) # This consumes 20KB of memory
 
     async def on_message(self):
         """
