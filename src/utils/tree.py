@@ -146,18 +146,12 @@ def main():
                ]
            }
 
-    all_nodes = get_all_nodes(tmp)
-    # for i in all_nodes:
-    #     print(i)
+    get_all_nodes(tmp)
     tree = Tree()
     json_to_tree(tmp, tree, None)
     print(" TREE: \n", tree)
-    # print(tree.root._get_descendants())
-    # print(tree.root.get_routes())
     print(tree.root.get_all())
     print(get_level(tree.search("3c:71:bb:e4:8b:42")))
-    # for i in get_all_nodes(tree.pack()):
-    #     print(i)
 
 
 if __name__ == "__main__":

@@ -45,6 +45,8 @@ function is triggered by WiFi core but uses ESP-NOW protocol.
 - micropython_616/ - copy of github form glenn-g20/ branch of micropython with working ESP-NOW support on ESP32-Buddy boards. This version is probably re-based and unavailable.
 
 ## Manual to ESP32 boards
+Use `make install` or `make install-all` to flash the board/boards with this project.
+
 To get MicroPython on your board you need ESP-IDF from Espressif. Then download MicroPython and execute following. This will provide board with 111KB of RAM: \
 ```
 cd micropython_616\
@@ -112,3 +114,6 @@ class App:
     await self.core.send_to_nodes(appmsg)
     ...
 ```
+
+### Tips
+In config.json file set debug prints to false if you intend to use more than 3 boards.
