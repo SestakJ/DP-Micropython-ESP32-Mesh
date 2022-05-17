@@ -235,25 +235,6 @@ class AppMessage(WifiMSGBase):
         wificore.loop.create_task(app.process(self))
 
 
-# class ClaimChild:
-#     type = ESP_TYPE.CLAIM_CHILD_REQUEST
-
-#     def __init__(self, claimer, vis, claimed):
-#         self.claimer = claimer
-#         self.vis = vis
-#         self.claimed = claimed
-
-#     async def process(self):
-#         await asyncio.sleep(0.40)
-
-
-# class ClaimChildRes(ClaimChild):
-#     type = ESP_TYPE.CLAIM_CHILD_RESPONSE
-
-#     async def process(self):
-#         await asyncio.sleep(0.50)
-
-
 WIFI_PACKETS = {
     WIFIMSG.TOPOLOGY_PROPAGATE: TopologyPropagate,
     WIFIMSG.TOPOLOGY_CHANGED: TopologyChanged,
@@ -285,62 +266,6 @@ async def main():
     print(f"Advertise message {ad}")
     tmpmsg = await unpack_espmessage(msg, None)
     print(tmpmsg)
-    # gimme_creds = ObtainCreds(0,b'\xff\xff\xff\xff\xff\xa0' )
-    # try:
-    #     msg = pack_espmessage(gimme_creds)
-    # except:
-    #     print(msg)
-    # print(f"Obtain creds 0 {msg}")
-    # # tmpmsg = await unpack_espmessage(msg, "hej")
-    # gimme_creds = ObtainCreds(1,b'\xff\xff\xff\xff\xff\xa0' )
-    # try:
-    #     msg = pack_espmessage(gimme_creds)
-    # except:
-    #     print(msg)
-    # print(f"Obtain creds 1 {msg}")
-    # # tmpmsg = await unpack_espmessage(msg, "hej")
-    # gimme_creds = ObtainCreds(2,b'\xff\xff\xff\xff\xff\xa0' )
-    # msg = pack_espmessage(gimme_creds)
-    # print(f"Obtain creds 2 {msg}")
-    # # tmpmsg = await unpack_espmessage(msg, "hej")
-    # gimme_creds = ObtainCreds(3,b'\xff\xff\xff\xff\xff\xa0' )
-    # msg = pack_espmessage(gimme_creds)
-    # print(f"Obtain creds 3 {msg}")
-    # # tmpmsg = await unpack_espmessage(msg, "hej")
-    # gimme_creds = ObtainCreds(4,b'\xff\xff\xff\xff\xff\xa0' )
-    # msg = pack_espmessage(gimme_creds)
-    # print(f"Obtain creds 4 {msg}")
-    # # tmpmsg = await unpack_espmessage(msg, "hej")
-
-    # essid = b'ESP' + hexlify(b'<q\xbf\xe4\x8d\xa1')
-    # passwd = b'GpWVdRn3uMNPf1Ep' #id_generator()
-    # claim = SendWifiCreds(b'<q\xbf\xe4\x8d\xa1', len(essid), essid, passwd)
-    # msg = pack_espmessage(claim)
-    # print(f"Send WiFi creds in ESPNOW {msg}")
-    # # ret_msg = await unpack_espmessage(msg, "hello")
-
-    # tmp ={"topology": {"node" : "3c:71:bb:e4:8b:89",
-    #                   "child" : 
-    #                   [
-    #                      {"node" : "3c:71:bb:e4:8b:a1",
-    #                       "child": 
-    #                       [
-    #                           {
-    #                               "node": "3c:71:bb:e4:8b:b9",
-    #                               "child": {}  
-    #                           }
-    #                       ]
-    #                       }
-    #                   ]
-    #                   }
-    # }
-    # dst = hexlify(b'<q\xbf\xe4\x8b\x88', ':').replace(b':', b'').decode()
-    # new_dst = unhexlify(dst)
-    # topo = TopologyPropagate(dst, dst, "Topology json")
-    # msg = pack_wifimessage(topo)
-    # print(f"Topology Propagate  {msg}")
-    # # obj = await unpack_wifimessage(msg, "core")
-
 
 if __name__ == "__main__":
     asyncio.run(main())

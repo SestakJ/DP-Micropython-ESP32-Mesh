@@ -291,8 +291,6 @@ class EspNowCore:
         """
         After neighbours don't change for some time, trigger flag to simulate root election.
         """
-        # while not self.neigh_last_changed:
-        #     await asyncio.sleep(DEFAULT_S)
         root = unhexlify(self.config.get("root", ""))
         while True:
             if self.seen_topology and root != self.id:  # If seen node in topology wait to be claimed.
@@ -300,7 +298,6 @@ class EspNowCore:
             elif time.ticks_diff(time.ticks_ms(),
                                  self.neigh_last_changed) > NEIGHBOURS_NOT_CHANGED_FOR_MS:
                 self.root = root  # Now assign root to simulate election.
-                # TODO root election automatically
                 print(
                     f"[ROOT ELECTION] can start, neigh database ot changed for {NEIGHBOURS_NOT_CHANGED_FOR_MS} seconds")
                 if self.id == self.root:
