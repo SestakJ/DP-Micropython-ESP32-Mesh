@@ -47,6 +47,8 @@ function is triggered by WiFi core but uses ESP-NOW protocol.
 ## Manual to ESP32 boards
 Use `make install` or `make install-all` to flash the board/boards with this project.
 
+Project uses Micropython from glenn20 branch on commit `b67384616b87fb56b126fd9befe23225d184091d`.
+
 To get MicroPython on your board you need ESP-IDF from Espressif. Then download MicroPython and execute following. This will provide board with 111KB of RAM: \
 ```
 cd micropython_616\

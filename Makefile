@@ -43,7 +43,7 @@ update-all:
     done
 
 pack:
-	zip $(NAME).zip -r src/ Makefile README.md blinkapp.py boot.py main.py
+	zip $(NAME).zip -r src/ Makefile README.md blinkapp.py boot.py main.py connected-app.py LICENSE config.json
 
 clean:
 	-rm $(NAME).zip
